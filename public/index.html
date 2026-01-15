@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Shop</title>
+    <title>Магазин</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -11,40 +11,69 @@
     <div id="loader" class="loader-container"><div class="spinner"></div></div>
 
     <div id="app" style="display: none;">
-        <header class="header"><h1 id="page-title">Каталог</h1></header>
+        <header class="header">
+            <h1 id="page-title">Каталог продукции</h1>
+        </header>
 
-        <div id="product-list" class="product-grid"></div>
-
-        <div id="cart-view" class="hidden">
-            <div id="cart-items-list"></div>
-            
-            <div class="order-form">
-                <h3>Доставка</h3>
-                <input type="text" id="name" placeholder="Ваше имя" required>
-                <input type="tel" id="phone" placeholder="Телефон" required>
-                <textarea id="address" placeholder="Адрес доставки" rows="2" required></textarea>
-                
-                <label>Когда доставить?</label>
-                <select id="date-select" onchange="toggleDateInput()">
-                    <option value="Завтра">Завтра</option>
-                    <option value="Послезавтра">Послезавтра</option>
-                    <option value="custom">Выбрать дату...</option>
-                </select>
-                <input type="date" id="custom-date" class="hidden" style="margin-top: 5px;">
-
-                <select id="delivery-type" style="margin-top: 10px;">
-                    <option value="Доставка">Курьерская доставка</option>
-                    <option value="Самовывоз">Самовывоз</option>
-                </select>
-                
-                <textarea id="comment" placeholder="Комментарий" rows="2"></textarea>
+        <div class="content-container">
+            <div id="catalog-view">
+                <div id="product-list" class="product-grid"></div>
             </div>
-            
-            <div class="cart-summary">
-                <p>Доставка: <span id="delivery-cost">0</span> ₽</p>
-                <p class="total">Итого: <span id="total-price">0</span> ₽</p>
+
+            <div id="cart-view" class="hidden">
+                <div class="cart-section">
+                     <h2 class="section-title">Ваш заказ</h2>
+                    <div id="cart-items-list"></div>
+                </div>
+                
+                <div class="cart-section">
+                    <h2 class="section-title">Доставка</h2>
+                    <div class="order-form">
+                        <input type="text" id="name" placeholder="Ваше имя" required>
+                        <input type="tel" id="phone" placeholder="Телефон" required>
+                        <textarea id="address" placeholder="Адрес доставки" rows="2" required></textarea>
+                        
+                        <div class="form-group">
+                             <label for="date-select">Когда доставить?</label>
+                            <select id="date-select" onchange="toggleDateInput()">
+                                <option value="Завтра">Завтра</option>
+                                <option value="Послезавтра">Послезавтра</option>
+                                <option value="custom">Выбрать дату...</option>
+                            </select>
+                             <input type="date" id="custom-date" class="hidden mt-2">
+                        </div>
+
+                        <select id="delivery-type" class="mt-2">
+                            <option value="Доставка">Курьерская доставка</option>
+                            <option value="Самовывоз">Самовывоз</option>
+                        </select>
+                        
+                        <textarea id="comment" placeholder="Комментарий к заказу" rows="2" class="mt-2"></textarea>
+                    </div>
+                </div>
+
+                <div class="cart-summary">
+                    <div class="summary-row"><span>Доставка:</span><span id="delivery-cost">0 ₽</span></div>
+                     <div class="summary-row total"><span>Итого:</span><span id="total-price">0 ₽</span></div>
+                </div>
+                 <button class="btn-main" onclick="submitOrder()">Оформить заказ</button>
             </div>
         </div>
+        
+        <div class="bottom-nav">
+            <button class="nav-btn active" id="nav-catalog" onclick="showCatalog()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                <span>Каталог</span>
+            </button>
+            <button class="nav-btn" id="nav-cart" onclick="showCart()">
+                 <div class="icon-container">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+                    <span id="cart-badge" class="hidden">0</span>
+                 </div>
+                <span>Корзина</span>
+            </button>
+        </div>
+
     </div>
     <script src="script.js"></script>
 </body>
