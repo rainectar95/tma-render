@@ -1,49 +1,35 @@
 const tg = window.Telegram.WebApp;
-tg.expand(); // Раскрыть на весь экран
-
-// Относительный путь, так как фронт и бэк на одном домене
+tg.expand();
 const API_URL = ''; 
-
-// Получаем ID пользователя (для тестов в браузере используем 'test_user')
 const userId = tg.initDataUnsafe?.user?.id || 'test_user_123';
 
-// Состояние приложения
-let state = {
-    products: [],
-    cart: [],
-    totals: { finalTotal: 0 }
-};
+let state = { products: [], cart: [], totals: { finalTotal: 0 } };
 
-// --- ИНИЦИАЛИЗАЦИЯ ---
 document.addEventListener('DOMContentLoaded', async () => {
-    // Предзаполняем имя, если есть в Telegram
     if (tg.initDataUnsafe?.user) {
         const u = tg.initDataUnsafe.user;
-        const fullName = `${u.first_name || ''} ${u.last_name || ''}`.trim();
-        document.getElementById('name').value = fullName;
+        document.getElementById('name').value = [u.first_name, u.last_name].join(' ').trim();
     }
-    
     await loadProducts();
     await loadCart();
-    
-    // Убираем лоадер
     document.getElementById('loader').style.display = 'none';
     document.getElementById('app').style.display = 'block';
 });
 
-// Настройка Главной Кнопки Telegram
 tg.MainButton.onClick(() => {
-    if (document.getElementById('cart-view').classList.contains('hidden')) {
-        // Если мы в каталоге -> идем в корзину
-        showCart();
-    } else {
-        // Если мы в корзине -> оформляем заказ
-        submitOrder();
-    }
+    if (document.getElementById('cart-view').classList.contains('hidden')) showCart();
+    else submitOrder();
 });
 
-// --- API ЗАПРОСЫ ---
+// --- ЛОГИКА ДАТЫ ---
+function toggleDateInput() {
+    const select = document.getElementById('date-select');
+    const customInput = document.getElementById('custom-date');
+    if (select.value === 'custom') customInput.classList.remove('hidden');
+    else customInput.classList.add('hidden');
+}
 
+// --- API ---
 async function loadProducts() {
     try {
         const res = await fetch(`${API_URL}/api/get_products`);
@@ -52,9 +38,7 @@ async function loadProducts() {
             state.products = data.products;
             renderProducts();
         }
-    } catch (e) {
-        tg.showAlert("Ошибка загрузки товаров");
-    }
+    } catch(e) { tg.showAlert("Ошибка загрузки"); }
 }
 
 async function loadCart() {
@@ -65,15 +49,19 @@ async function loadCart() {
             state.cart = data.cart;
             state.totals = data.totals;
             updateMainButton();
+            // Если мы в корзине, нужно перерисовать её, чтобы обновить цифры
+            if (!document.getElementById('cart-view').classList.contains('hidden')) {
+                renderCartList();
+            } else {
+                renderProducts(); // Обновить кнопки в каталоге
+            }
         }
-    } catch (e) {
-        console.error(e);
-    }
+    } catch(e) {}
 }
 
-async function addToCart(itemId) {
-    tg.MainButton.showProgress(); // Показать крутилку на кнопке
-    
+// ЕДИНАЯ ФУНКЦИЯ ИЗМЕНЕНИЯ КОЛИЧЕСТВА
+async function changeQty(itemId, delta) {
+    tg.MainButton.showProgress();
     try {
         const res = await fetch(`${API_URL}/api/action`, {
             method: 'POST',
@@ -82,40 +70,42 @@ async function addToCart(itemId) {
                 action: 'add_to_cart',
                 userId: userId,
                 itemId: itemId,
-                quantity: 1
+                quantity: delta // +1 или -1
             })
         });
-        
         const data = await res.json();
         if (data.status === 'success') {
             state.cart = data.newCart;
             state.totals = data.newTotals;
             updateMainButton();
-            tg.HapticFeedback.notificationOccurred('success'); // Вибрация
-        } else {
-            tg.showAlert(data.message);
+            tg.HapticFeedback.selectionChanged();
+            
+            // Обновляем UI в зависимости от того, где мы
+            if (!document.getElementById('cart-view').classList.contains('hidden')) {
+                renderCartList();
+            } else {
+                renderProducts();
+            }
         }
-    } catch (e) {
-        tg.showAlert("Ошибка связи с сервером");
-    } finally {
-        tg.MainButton.hideProgress();
-    }
+    } catch(e) { tg.showAlert("Ошибка"); } 
+    finally { tg.MainButton.hideProgress(); }
 }
 
 async function submitOrder() {
     const name = document.getElementById('name').value;
     const phone = document.getElementById('phone').value;
     const address = document.getElementById('address').value;
-    const delivery = document.getElementById('delivery-type').value;
+    const deliveryType = document.getElementById('delivery-type').value;
     const comment = document.getElementById('comment').value;
+    
+    // Получаем дату
+    let dateVal = document.getElementById('date-select').value;
+    if (dateVal === 'custom') dateVal = document.getElementById('custom-date').value;
+    if (!dateVal) dateVal = "Не указана";
 
-    if (!name || !phone || !address) {
-        tg.showAlert("Пожалуйста, заполните Имя, Телефон и Адрес");
-        return;
-    }
+    if (!name || !phone || !address) return tg.showAlert("Заполните все поля!");
 
     tg.MainButton.showProgress();
-
     try {
         const res = await fetch(`${API_URL}/api/action`, {
             method: 'POST',
@@ -123,47 +113,85 @@ async function submitOrder() {
             body: JSON.stringify({
                 action: 'place_order',
                 userId: userId,
-                orderDetails: {
-                    name, phone, address, deliveryType: delivery, comment
-                }
+                orderDetails: { name, phone, address, deliveryType, deliveryDate: dateVal, comment }
             })
         });
-
         const data = await res.json();
-        
         if (data.status === 'success') {
             tg.showAlert(data.message);
-            tg.close(); // Закрыть приложение после заказа
-        } else {
-            tg.showAlert("Ошибка: " + data.message);
-        }
-    } catch (e) {
-        tg.showAlert("Не удалось оформить заказ");
-    } finally {
-        tg.MainButton.hideProgress();
-    }
+            tg.close();
+        } else tg.showAlert(data.message);
+    } catch(e) { tg.showAlert("Ошибка заказа"); }
+    finally { tg.MainButton.hideProgress(); }
 }
 
-// --- ОТРИСОВКА (RENDER) ---
+// --- ОТРИСОВКА ---
 
 function renderProducts() {
     const container = document.getElementById('product-list');
     container.innerHTML = '';
-
     state.products.forEach(p => {
+        // Ищем, есть ли товар в корзине
+        const cartItem = state.cart.find(c => c.id === p.id);
+        const qty = cartItem ? cartItem.qty : 0;
+        const imgUrl = p.imageUrl || 'https://via.placeholder.com/150';
+
         const card = document.createElement('div');
         card.className = 'product-card';
-        // Используем заглушку, если картинки нет
-        const imgUrl = p.imageUrl || 'https://via.placeholder.com/150?text=No+Image';
         
+        let buttonHtml = '';
+        if (qty > 0) {
+            // Если товар в корзине - показываем +/-
+            buttonHtml = `
+                <div class="qty-control">
+                    <button class="btn-qty" onclick="changeQty('${p.id}', -1)">−</button>
+                    <span class="qty-val">${qty}</span>
+                    <button class="btn-qty" onclick="changeQty('${p.id}', 1)">+</button>
+                </div>
+            `;
+        } else {
+            // Если нет - кнопка "В корзину"
+            buttonHtml = `<button class="btn-add" onclick="changeQty('${p.id}', 1)">В корзину</button>`;
+        }
+
         card.innerHTML = `
-            <img src="${imgUrl}" class="product-img" alt="${p.name}">
+            <img src="${imgUrl}" class="product-img">
             <div class="product-name">${p.name}</div>
             <div class="product-price">${p.price} ₽</div>
-            <button class="btn-add" onclick="addToCart('${p.id}')">В корзину</button>
+            ${buttonHtml}
         `;
         container.appendChild(card);
     });
+}
+
+function renderCartList() {
+    const container = document.getElementById('cart-items-list');
+    
+    if (state.cart.length === 0) {
+        container.innerHTML = '<p style="text-align:center; padding:20px;">Корзина пуста</p>';
+        return;
+    }
+
+    container.innerHTML = state.cart.map(item => {
+        const product = state.products.find(p => p.id === item.id);
+        if (!product) return '';
+        return `
+            <div class="cart-item">
+                <div class="cart-item-left">
+                    <b>${product.name}</b>
+                    <span>${product.price} ₽/шт.</span>
+                </div>
+                <div class="qty-control" style="width: 100px;">
+                     <button class="btn-qty" onclick="changeQty('${item.id}', -1)">−</button>
+                     <span class="qty-val">${item.qty}</span>
+                     <button class="btn-qty" onclick="changeQty('${item.id}', 1)">+</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    document.getElementById('delivery-cost').innerText = state.totals.deliveryCost;
+    document.getElementById('total-price').innerText = state.totals.finalTotal;
 }
 
 function updateMainButton() {
@@ -172,54 +200,34 @@ function updateMainButton() {
     } else {
         tg.MainButton.setText(`Корзина (${state.totals.finalTotal} ₽)`);
         tg.MainButton.show();
-        tg.MainButton.color = "#3390ec"; // Стандартный синий
+        tg.MainButton.color = "#3390ec";
     }
 }
 
-// --- НАВИГАЦИЯ ---
-
+// Навигация
 function showCart() {
-    // Скрываем каталог, показываем корзину
     document.getElementById('product-list').classList.add('hidden');
     document.getElementById('cart-view').classList.remove('hidden');
-    document.getElementById('page-title').innerText = 'Оформление заказа';
+    document.getElementById('page-title').innerText = 'Оформление';
+    renderCartList(); // Отрисовать корзину с кнопками
     
-    // Меняем кнопку на "Оплатить"
-    tg.MainButton.setText(`ОФОРМИТЬ ЗАКАЗ (${state.totals.finalTotal} ₽)`);
-    tg.MainButton.color = "#31b545"; // Зеленый цвет для оплаты
-    
-    // Рендерим список товаров в корзине (простой список)
-    const cartList = document.getElementById('cart-items-list');
-    cartList.innerHTML = state.cart.map(item => {
-        const product = state.products.find(p => p.id === item.id);
-        const name = product ? product.name : 'Товар';
-        const price = product ? product.price : 0;
-        return `
-            <div class="cart-item">
-                <div><b>${name}</b> <br> ${item.qty} шт. x ${price} ₽</div>
-                <div>${price * item.qty} ₽</div>
-            </div>
-        `;
-    }).join('');
-    
-    document.getElementById('delivery-cost').innerText = state.totals.deliveryCost;
-    document.getElementById('total-price').innerText = state.totals.finalTotal;
-    
-    // Добавляем кнопку "Назад" в хедер Telegram
+    tg.MainButton.setText(`ОФОРМИТЬ (${state.totals.finalTotal} ₽)`);
+    tg.MainButton.color = "#31b545";
     tg.BackButton.show();
-    tg.BackButton.onClick(() => {
-        showCatalog();
-    });
+    tg.BackButton.onClick(showCatalog);
 }
 
 function showCatalog() {
     document.getElementById('product-list').classList.remove('hidden');
     document.getElementById('cart-view').classList.add('hidden');
     document.getElementById('page-title').innerText = 'Каталог';
+    renderProducts(); // Перерисовать каталог (чтобы обновились кнопки)
     
-    updateMainButton(); // Вернуть синюю кнопку "Корзина"
+    updateMainButton();
     tg.BackButton.hide();
-    
-    // Удаляем листенер, чтобы не дублировался (Telegram API особенность)
-    tg.BackButton.offClick(showCatalog); 
+    tg.BackButton.offClick(showCatalog);
 }
+
+// Экспорт для HTML onchange (дата)
+window.toggleDateInput = toggleDateInput;
+window.changeQty = changeQty;
