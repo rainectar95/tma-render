@@ -2,17 +2,25 @@ const express = require('express');
 const { google } = require('googleapis');
 const cors = require('cors');
 const NodeCache = require('node-cache');
+const path = require('path'); // <--- 1. ДОБАВИТЬ ЭТУ СТРОКУ
+
 require('dotenv').config();
 
 const app = express();
-const cache = new NodeCache({ stdTTL: 600 }); // Кэш на 10 минут (600 сек)
+const cache = new NodeCache({ stdTTL: 600 });
 
 app.use(cors());
 app.use(express.json());
 
+// <--- 2. ДОБАВИТЬ ВОТ ЭТОТ БЛОК ---
+// Сервер будет отдавать файлы из папки public
+app.use(express.static(path.join(__dirname, 'public')));
+
 // --- КОНФИГУРАЦИЯ ---
 // ID вашей таблицы (берется из URL таблицы: /d/ЭТОТ_ID/edit)
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID; 
+
+
 
 const SHEET_PRODUCTS = "Товары";
 const SHEET_CARTS = "Корзины";
