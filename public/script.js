@@ -1,35 +1,74 @@
 const tg = window.Telegram.WebApp;
 tg.expand();
-const API_URL = ''; 
-const userId = tg.initDataUnsafe?.user?.id || 'test_user_123';
+// Относительный путь для API
+const API_URL = '';
+// ID пользователя для тестов или из Telegram
+const userId = tg.initDataUnsafe?.user?.id || 'test_user_777';
 
-let state = { products: [], cart: [], totals: { finalTotal: 0 } };
+// Состояние приложения
+let state = {
+    products: [],
+    cart: [],
+    totals: { finalTotal: 0, totalQty: 0 }
+};
 
+// --- ИНИЦИАЛИЗАЦИЯ ---
 document.addEventListener('DOMContentLoaded', async () => {
     if (tg.initDataUnsafe?.user) {
         const u = tg.initDataUnsafe.user;
+        // Предзаполнение имени
         document.getElementById('name').value = [u.first_name, u.last_name].join(' ').trim();
     }
+    
     await loadProducts();
     await loadCart();
+    
+    // Скрываем лоадер, показываем приложение
     document.getElementById('loader').style.display = 'none';
     document.getElementById('app').style.display = 'block';
 });
 
-tg.MainButton.onClick(() => {
-    if (document.getElementById('cart-view').classList.contains('hidden')) showCart();
-    else submitOrder();
-});
+// --- ЛОГИКА ИНТЕРФЕЙСА ---
 
-// --- ЛОГИКА ДАТЫ ---
+// Переключение выбора даты (показать календарь)
 function toggleDateInput() {
     const select = document.getElementById('date-select');
     const customInput = document.getElementById('custom-date');
-    if (select.value === 'custom') customInput.classList.remove('hidden');
-    else customInput.classList.add('hidden');
+    if (select.value === 'custom') {
+        customInput.classList.remove('hidden');
+    } else {
+        customInput.classList.add('hidden');
+    }
 }
 
-// --- API ---
+// Навигация: Показать каталог
+function showCatalog() {
+    document.getElementById('catalog-view').classList.remove('hidden');
+    document.getElementById('cart-view').classList.add('hidden');
+    document.getElementById('page-title').innerText = 'Каталог продукции';
+    
+    document.getElementById('nav-catalog').classList.add('active');
+    document.getElementById('nav-cart').classList.remove('active');
+    
+    // Перерисовываем, чтобы обновились кнопки количества
+    renderProducts(); 
+}
+
+// Навигация: Показать корзину
+function showCart() {
+    document.getElementById('catalog-view').classList.add('hidden');
+    document.getElementById('cart-view').classList.remove('hidden');
+    document.getElementById('page-title').innerText = 'Корзина';
+    
+    document.getElementById('nav-catalog').classList.remove('active');
+    document.getElementById('nav-cart').classList.add('active');
+    
+    // Перерисовываем список товаров в корзине
+    renderCart();
+}
+
+// --- API ЗАПРОСЫ ---
+
 async function loadProducts() {
     try {
         const res = await fetch(`${API_URL}/api/get_products`);
@@ -38,7 +77,9 @@ async function loadProducts() {
             state.products = data.products;
             renderProducts();
         }
-    } catch(e) { tg.showAlert("Ошибка загрузки"); }
+    } catch (e) {
+        tg.showAlert("Ошибка загрузки товаров");
+    }
 }
 
 async function loadCart() {
@@ -48,20 +89,16 @@ async function loadCart() {
         if (data.cart) {
             state.cart = data.cart;
             state.totals = data.totals;
-            updateMainButton();
-            // Если мы в корзине, нужно перерисовать её, чтобы обновить цифры
-            if (!document.getElementById('cart-view').classList.contains('hidden')) {
-                renderCartList();
-            } else {
-                renderProducts(); // Обновить кнопки в каталоге
-            }
+            updateCartUI();
         }
-    } catch(e) {}
+    } catch (e) { console.error(e); }
 }
 
-// ЕДИНАЯ ФУНКЦИЯ ИЗМЕНЕНИЯ КОЛИЧЕСТВА
+// Единая функция изменения количества (+1 или -1)
 async function changeQty(itemId, delta) {
-    tg.MainButton.showProgress();
+    // Покажем вибрацию при нажатии
+    tg.HapticFeedback.selectionChanged();
+
     try {
         const res = await fetch(`${API_URL}/api/action`, {
             method: 'POST',
@@ -70,25 +107,23 @@ async function changeQty(itemId, delta) {
                 action: 'add_to_cart',
                 userId: userId,
                 itemId: itemId,
-                quantity: delta // +1 или -1
+                quantity: delta // Отправляем +1 или -1
             })
         });
+
         const data = await res.json();
         if (data.status === 'success') {
             state.cart = data.newCart;
             state.totals = data.newTotals;
-            updateMainButton();
-            tg.HapticFeedback.selectionChanged();
             
-            // Обновляем UI в зависимости от того, где мы
-            if (!document.getElementById('cart-view').classList.contains('hidden')) {
-                renderCartList();
-            } else {
-                renderProducts();
-            }
+            // Обновляем UI везде
+            updateCartUI();
+            renderProducts();
+            renderCart();
         }
-    } catch(e) { tg.showAlert("Ошибка"); } 
-    finally { tg.MainButton.hideProgress(); }
+    } catch (e) {
+        tg.showAlert("Ошибка соединения");
+    }
 }
 
 async function submitOrder() {
@@ -97,15 +132,20 @@ async function submitOrder() {
     const address = document.getElementById('address').value;
     const deliveryType = document.getElementById('delivery-type').value;
     const comment = document.getElementById('comment').value;
-    
-    // Получаем дату
-    let dateVal = document.getElementById('date-select').value;
-    if (dateVal === 'custom') dateVal = document.getElementById('custom-date').value;
-    if (!dateVal) dateVal = "Не указана";
 
-    if (!name || !phone || !address) return tg.showAlert("Заполните все поля!");
+    // Получаем выбранную дату
+    let dateVal = document.getElementById('date-select').value;
+    if (dateVal === 'custom') {
+        dateVal = document.getElementById('custom-date').value;
+        if (!dateVal) return tg.showAlert("Выберите дату в календаре");
+    }
+
+    if (!name || !phone || !address) {
+        return tg.showAlert("Заполните обязательные поля (Имя, Телефон, Адрес)");
+    }
 
     tg.MainButton.showProgress();
+
     try {
         const res = await fetch(`${API_URL}/api/action`, {
             method: 'POST',
@@ -113,35 +153,49 @@ async function submitOrder() {
             body: JSON.stringify({
                 action: 'place_order',
                 userId: userId,
-                orderDetails: { name, phone, address, deliveryType, deliveryDate: dateVal, comment }
+                orderDetails: {
+                    name, phone, address, deliveryType,
+                    deliveryDate: dateVal, // Отправляем дату
+                    comment
+                }
             })
         });
+
         const data = await res.json();
         if (data.status === 'success') {
             tg.showAlert(data.message);
             tg.close();
-        } else tg.showAlert(data.message);
-    } catch(e) { tg.showAlert("Ошибка заказа"); }
-    finally { tg.MainButton.hideProgress(); }
+        } else {
+            tg.showAlert(data.message);
+        }
+    } catch (e) {
+        tg.showAlert("Ошибка при оформлении заказа");
+    } finally {
+        tg.MainButton.hideProgress();
+    }
 }
 
-// --- ОТРИСОВКА ---
+// --- ОТРИСОВКА (RENDER) ---
 
 function renderProducts() {
     const container = document.getElementById('product-list');
     container.innerHTML = '';
+
     state.products.forEach(p => {
-        // Ищем, есть ли товар в корзине
-        const cartItem = state.cart.find(c => c.id === p.id);
+        // Проверяем, есть ли товар в корзине
+        const cartItem = state.cart.find(item => item.id === p.id);
         const qty = cartItem ? cartItem.qty : 0;
         const imgUrl = p.imageUrl || 'https://via.placeholder.com/150';
+        const details = p.description ? `${p.description}` : `${p.stock} шт.`;
 
         const card = document.createElement('div');
         card.className = 'product-card';
-        
+
+        // Логика кнопки: или "В корзину", или контрол [ - ] qty [ + ]
         let buttonHtml = '';
-        if (qty > 0) {
-            // Если товар в корзине - показываем +/-
+        if (qty === 0) {
+            buttonHtml = `<button class="btn-add" onclick="changeQty('${p.id}', 1)">В корзину</button>`;
+        } else {
             buttonHtml = `
                 <div class="qty-control">
                     <button class="btn-qty" onclick="changeQty('${p.id}', -1)">−</button>
@@ -149,26 +203,23 @@ function renderProducts() {
                     <button class="btn-qty" onclick="changeQty('${p.id}', 1)">+</button>
                 </div>
             `;
-        } else {
-            // Если нет - кнопка "В корзину"
-            buttonHtml = `<button class="btn-add" onclick="changeQty('${p.id}', 1)">В корзину</button>`;
         }
 
         card.innerHTML = `
-            <img src="${imgUrl}" class="product-img">
+            <img src="${imgUrl}" class="product-img" alt="${p.name}">
             <div class="product-name">${p.name}</div>
-            <div class="product-price">${p.price} ₽</div>
+            <div class="product-details">${details}</div>
+            <div class="product-price" style="font-weight:bold; margin-bottom:10px;">${p.price} ₽</div>
             ${buttonHtml}
         `;
         container.appendChild(card);
     });
 }
 
-function renderCartList() {
+function renderCart() {
     const container = document.getElementById('cart-items-list');
-    
     if (state.cart.length === 0) {
-        container.innerHTML = '<p style="text-align:center; padding:20px;">Корзина пуста</p>';
+        container.innerHTML = '<p>Корзина пуста</p>';
         return;
     }
 
@@ -177,57 +228,40 @@ function renderCartList() {
         if (!product) return '';
         return `
             <div class="cart-item">
-                <div class="cart-item-left">
-                    <b>${product.name}</b>
-                    <span>${product.price} ₽/шт.</span>
+                <div class="cart-item-info">
+                    <div class="cart-item-name">${product.name}</div>
+                    <div class="cart-item-price">${product.price} ₽</div>
                 </div>
-                <div class="qty-control" style="width: 100px;">
-                     <button class="btn-qty" onclick="changeQty('${item.id}', -1)">−</button>
-                     <span class="qty-val">${item.qty}</span>
-                     <button class="btn-qty" onclick="changeQty('${item.id}', 1)">+</button>
+                <div style="width: 110px;">
+                    <div class="qty-control">
+                        <button class="btn-qty" onclick="changeQty('${item.id}', -1)">−</button>
+                        <span class="qty-val">${item.qty}</span>
+                        <button class="btn-qty" onclick="changeQty('${item.id}', 1)">+</button>
+                    </div>
                 </div>
             </div>
         `;
     }).join('');
-    
-    document.getElementById('delivery-cost').innerText = state.totals.deliveryCost;
-    document.getElementById('total-price').innerText = state.totals.finalTotal;
 }
 
-function updateMainButton() {
-    if (state.cart.length === 0) {
-        tg.MainButton.hide();
+function updateCartUI() {
+    // Обновляем итоги в корзине
+    document.getElementById('delivery-cost').innerText = `${state.totals.deliveryCost} ₽`;
+    document.getElementById('total-price').innerText = `${state.totals.finalTotal} ₽`;
+    
+    // Обновляем бейдж на кнопке навигации
+    const badge = document.getElementById('cart-badge');
+    if (state.totals.totalQty > 0) {
+        badge.innerText = state.totals.totalQty;
+        badge.classList.remove('hidden');
     } else {
-        tg.MainButton.setText(`Корзина (${state.totals.finalTotal} ₽)`);
-        tg.MainButton.show();
-        tg.MainButton.color = "#3390ec";
+        badge.classList.add('hidden');
     }
 }
 
-// Навигация
-function showCart() {
-    document.getElementById('product-list').classList.add('hidden');
-    document.getElementById('cart-view').classList.remove('hidden');
-    document.getElementById('page-title').innerText = 'Оформление';
-    renderCartList(); // Отрисовать корзину с кнопками
-    
-    tg.MainButton.setText(`ОФОРМИТЬ (${state.totals.finalTotal} ₽)`);
-    tg.MainButton.color = "#31b545";
-    tg.BackButton.show();
-    tg.BackButton.onClick(showCatalog);
-}
-
-function showCatalog() {
-    document.getElementById('product-list').classList.remove('hidden');
-    document.getElementById('cart-view').classList.add('hidden');
-    document.getElementById('page-title').innerText = 'Каталог';
-    renderProducts(); // Перерисовать каталог (чтобы обновились кнопки)
-    
-    updateMainButton();
-    tg.BackButton.hide();
-    tg.BackButton.offClick(showCatalog);
-}
-
-// Экспорт для HTML onchange (дата)
+// Экспорт функций для вызова из HTML
 window.toggleDateInput = toggleDateInput;
 window.changeQty = changeQty;
+window.submitOrder = submitOrder;
+window.showCatalog = showCatalog;
+window.showCart = showCart;
