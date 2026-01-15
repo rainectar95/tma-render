@@ -3,40 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Telegram Shop</title>
+    <title>Shop</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-    <div id="loader" class="loader-container">
-        <div class="spinner"></div>
-    </div>
+    <div id="loader" class="loader-container"><div class="spinner"></div></div>
 
     <div id="app" style="display: none;">
-        
-        <header class="header">
-            <h1 id="page-title">Каталог</h1>
-        </header>
+        <header class="header"><h1 id="page-title">Каталог</h1></header>
 
-        <div id="product-list" class="product-grid">
-            </div>
+        <div id="product-list" class="product-grid"></div>
 
         <div id="cart-view" class="hidden">
             <div id="cart-items-list"></div>
             
             <div class="order-form">
-                <h3>Данные доставки</h3>
+                <h3>Доставка</h3>
                 <input type="text" id="name" placeholder="Ваше имя" required>
                 <input type="tel" id="phone" placeholder="Телефон" required>
                 <textarea id="address" placeholder="Адрес доставки" rows="2" required></textarea>
                 
-                <select id="delivery-type">
+                <label>Когда доставить?</label>
+                <select id="date-select" onchange="toggleDateInput()">
+                    <option value="Завтра">Завтра</option>
+                    <option value="Послезавтра">Послезавтра</option>
+                    <option value="custom">Выбрать дату...</option>
+                </select>
+                <input type="date" id="custom-date" class="hidden" style="margin-top: 5px;">
+
+                <select id="delivery-type" style="margin-top: 10px;">
                     <option value="Доставка">Курьерская доставка</option>
                     <option value="Самовывоз">Самовывоз</option>
                 </select>
                 
-                <textarea id="comment" placeholder="Комментарий к заказу" rows="2"></textarea>
+                <textarea id="comment" placeholder="Комментарий" rows="2"></textarea>
             </div>
             
             <div class="cart-summary">
@@ -44,9 +45,7 @@
                 <p class="total">Итого: <span id="total-price">0</span> ₽</p>
             </div>
         </div>
-
     </div>
-
     <script src="script.js"></script>
 </body>
 </html>
