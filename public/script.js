@@ -238,14 +238,19 @@ async function submitOrder() {
     const deliveryType = document.getElementById('delivery-type').value;
     const comment = document.getElementById('comment').value;
 
-    // --- ЛОГИКА ДАТЫ (Берем напрямую из календаря) ---
-    const rawDate = document.getElementById('custom-date').value;
-    let dateVal = rawDate ? formatSmartDate(rawDate) : '';
-
-    if (!dateVal && !IS_LOCAL_MODE) {
-        return tg.showAlert("Выберите дату доставки");
+    // --- ПОЛУЧЕНИЕ ДАТЫ ---
+    // Берем дату напрямую из календаря
+    const rawDate = document.getElementById('custom-date').value; // Например: "2026-01-18"
+    
+    // Проверка: выбрана ли дата?
+    if (!rawDate && !IS_LOCAL_MODE) {
+        return tg.showAlert("Выберите дату доставки!");
     }
 
+    // Красивая дата для отображения в таблице (например "18 Января")
+    const dateVal = rawDate ? formatSmartDate(rawDate) : '';
+
+    // Локальный режим
     if (IS_LOCAL_MODE) {
         tg.showAlert(`🔶 [LOCAL] Заказ оформлен!\n📅 Дата: ${dateVal}`);
         state.cart = [];
@@ -259,6 +264,7 @@ async function submitOrder() {
     if (!name || !phone || !address) return tg.showAlert("Заполните Имя, Телефон и Адрес");
 
     tg.MainButton.showProgress();
+
     try {
         const res = await fetch(`${API_URL}/api/action`, {
             method: 'POST',
@@ -266,7 +272,12 @@ async function submitOrder() {
             body: JSON.stringify({
                 action: 'place_order',
                 userId: userId,
-                orderDetails: { name, phone, address, deliveryType, deliveryDate: dateVal, comment }
+                orderDetails: {
+                    name, phone, address, deliveryType,
+                    deliveryDate: dateVal, // Красивый текст (для человека)
+                    deliveryRaw: rawDate,  // <--- ВАЖНО: Добавили сырую дату (для сервера)
+                    comment
+                }
             })
         });
         const data = await res.json();
@@ -277,12 +288,12 @@ async function submitOrder() {
             tg.showAlert(data.message);
         }
     } catch (e) {
-        tg.showAlert("Ошибка заказа");
+        tg.showAlert("Ошибка при заказе");
+        console.error(e);
     } finally {
         tg.MainButton.hideProgress();
     }
 }
-
 // --- ЛОКАЛЬНЫЙ РАСЧЕТ ИТОГОВ ---
 // Эта функция теперь работает ВСЕГДА (и в local, и в production)
 function calculateTotals() {
@@ -437,5 +448,6 @@ window.changeQty = changeQty;
 window.submitOrder = submitOrder;
 window.showCatalog = showCatalog;
 window.showCart = showCart;
+
 
 
