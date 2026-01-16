@@ -47,61 +47,43 @@ async function appendRow(range, values) {
     });
 }
 
-// 🔥 ФУНКЦИЯ ПОДСЧЕТА ИТОГОВ НА ДЕНЬ 🔥
+// 🔥 ПОДСЧЕТ ИТОГОВ НА ДЕНЬ (Справа от таблицы) 🔥
 async function updateDailySummary(sheetName) {
     try {
-        // 1. Читаем колонку G (Товары) со всего листа
+        // Читаем товары из колонки G
         const rows = await getSheetData(`${sheetName}!G2:G`);
         const totals = {};
 
-        // 2. Считаем сумму каждого товара
         rows.forEach(row => {
             if (!row[0]) return;
-            // Пример строки: "Лаваш x 2\nСыр x 1"
             const lines = row[0].split('\n');
             lines.forEach(line => {
-                // Ищем "Название x Число"
-                // Regex: берет всё до " x ", потом число
                 const match = line.match(/(.+) x (\d+)$/);
                 if (match) {
                     const name = match[1].trim();
                     const qty = parseInt(match[2], 10);
-                    
                     if (!totals[name]) totals[name] = 0;
                     totals[name] += qty;
                 }
             });
         });
 
-        // 3. Формируем таблицу для записи
-        const summaryData = [['📦 ИТОГО НА ДЕНЬ', 'КОЛ-ВО']]; // Заголовок
+        const summaryData = [['📦 ИТОГО НА ДЕНЬ', 'КОЛ-ВО']];
         for (const [name, qty] of Object.entries(totals)) {
             summaryData.push([name, qty]);
         }
 
-        // 4. Пишем в колонки N (14) и O (15)
-        // Сначала очистим диапазон (на всякий случай, если товаров стало меньше)
-        await sheets.spreadsheets.values.clear({
-            spreadsheetId: SPREADSHEET_ID,
-            range: `${sheetName}!N1:O100`
-        });
-
-        // Записываем новые данные
+        // Пишем в колонки M и N (начинаем с 13-й колонки, так как таблица занимает A-K)
+        // A=0 ... K=10, L=11 (пустая), M=12, N=13
+        // Давайте писать в N и O (13 и 14), чтобы был отступ
+        await sheets.spreadsheets.values.clear({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!N1:O100` });
         await sheets.spreadsheets.values.update({
-            spreadsheetId: SPREADSHEET_ID,
-            range: `${sheetName}!N1`,
-            valueInputOption: 'USER_ENTERED',
-            resource: { values: summaryData }
+            spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!N1`, valueInputOption: 'USER_ENTERED', resource: { values: summaryData }
         });
-
-        // (Опционально) Можно покрасить заголовок сводки, но чтобы не крашить сервер - оставим просто текст
-        
-    } catch (e) {
-        console.error("Ошибка обновления сводки:", e);
-    }
+    } catch (e) { console.error("Ошибка сводки:", e); }
 }
 
-// --- СОЗДАНИЕ ЛИСТА ---
+// 🔥 СОЗДАНИЕ И НАСТРОЙКА ЛИСТА ПОД НОВЫЙ ДИЗАЙН 🔥
 async function ensureDailySheet(sheetName) {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -117,41 +99,86 @@ async function ensureDailySheet(sheetName) {
             });
             const newSheetId = createRes.data.replies[0].addSheet.properties.sheetId;
 
-            // 2. Наводим красоту
-            try {
-                await sheets.spreadsheets.batchUpdate({
-                    spreadsheetId: SPREADSHEET_ID,
-                    resource: {
-                        requests: [
-                            { // Жирная шапка (строка 1)
-                                repeatCell: {
-                                    range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 },
-                                    cell: { userEnteredFormat: { textFormat: { bold: true } } },
-                                    fields: "userEnteredFormat.textFormat.bold"
-                                }
-                            },
-                            { // Закрепить шапку
-                                updateSheetProperties: {
-                                    properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } },
-                                    fields: "gridProperties.frozenRowCount"
-                                }
-                            },
-                            // Ширина колонок
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, 
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 }, properties: { pixelSize: 300 }, fields: "pixelSize" } }, // Товары
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 13, endIndex: 14 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, // N (Сводка Товар)
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 14, endIndex: 15 }, properties: { pixelSize: 80 }, fields: "pixelSize" } }   // O (Сводка Кол-во)
-                        ]
-                    }
-                });
-            } catch (e) { console.error("Ошибка стиля:", e.message); }
+            // 2. Настраиваем стили
+            await sheets.spreadsheets.batchUpdate({
+                spreadsheetId: SPREADSHEET_ID,
+                resource: {
+                    requests: [
+                        // --- 1. ШАПКА ---
+                        { // Жирный шрифт + Центр + Фон
+                            repeatCell: {
+                                range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 },
+                                cell: { 
+                                    userEnteredFormat: { 
+                                        textFormat: { bold: true }, 
+                                        horizontalAlignment: "CENTER",
+                                        verticalAlignment: "MIDDLE"
+                                    } 
+                                },
+                                fields: "userEnteredFormat(textFormat,horizontalAlignment,verticalAlignment)"
+                            }
+                        },
+                        { // Закрепить 1 строку
+                            updateSheetProperties: {
+                                properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } },
+                                fields: "gridProperties.frozenRowCount"
+                            }
+                        },
 
-            // 3. Шапка таблицы
+                        // --- 2. ОСНОВНОЕ ТЕЛО ТАБЛИЦЫ (A2:K1000) ---
+                        // По умолчанию: Центр + Середина для ВСЕХ
+                        {
+                            repeatCell: {
+                                range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 0, endColumnIndex: 11 },
+                                cell: { userEnteredFormat: { horizontalAlignment: "CENTER", verticalAlignment: "MIDDLE" } },
+                                fields: "userEnteredFormat(horizontalAlignment,verticalAlignment)"
+                            }
+                        },
+                        
+                        // --- 3. ИСКЛЮЧЕНИЯ ---
+                        // Колонка G (Товары) - Выравнивание ВЛЕВО
+                        {
+                            repeatCell: {
+                                range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 6, endColumnIndex: 7 },
+                                cell: { userEnteredFormat: { horizontalAlignment: "LEFT", verticalAlignment: "MIDDLE" } },
+                                fields: "userEnteredFormat(horizontalAlignment,verticalAlignment)"
+                            }
+                        },
+                        // Колонка J (Комментарий) - Перенос текста
+                        {
+                            repeatCell: {
+                                range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 9, endColumnIndex: 10 },
+                                cell: { userEnteredFormat: { wrapStrategy: "WRAP", horizontalAlignment: "CENTER", verticalAlignment: "MIDDLE" } },
+                                fields: "userEnteredFormat(wrapStrategy,horizontalAlignment,verticalAlignment)"
+                            }
+                        },
+
+                        // --- 4. ШИРИНА КОЛОНОК ---
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, // A: Заказ
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 130 }, fields: "pixelSize" } }, // B: Оформлен
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 120 }, fields: "pixelSize" } }, // C: Имя
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 }, properties: { pixelSize: 140 }, fields: "pixelSize" } }, // D: Телефон
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 4, endIndex: 5 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, // E: Адрес
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 5, endIndex: 6 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }, // F: Тип дост
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 }, properties: { pixelSize: 300 }, fields: "pixelSize" } }, // G: Товары
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 7, endIndex: 8 }, properties: { pixelSize: 90 }, fields: "pixelSize" } },  // H: Сумма
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, properties: { pixelSize: 80 }, fields: "pixelSize" } },  // I: Статус
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 9, endIndex: 10 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, // J: Коммент
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 10, endIndex: 11 }, properties: { hiddenByUser: true }, fields: "hiddenByUser" } }, // K: UserID (СКРЫТ)
+                        
+                        // Сводка (N, O)
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 13, endIndex: 14 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 14, endIndex: 15 }, properties: { pixelSize: 80 }, fields: "pixelSize" } }   
+                    ]
+                }
+            });
+
+            // 3. Заголовки (Новый порядок)
             const headers = [
-                "ID Заказа", "Время создания", "User ID", 
-                "Имя", "Телефон", "Адрес", 
+                "Заказ", "Оформлен", "Имя", 
+                "Телефон", "Адрес", "Тип доставки", 
                 "Товары", "Сумма", "Статус", 
-                "Комментарий", "Тип доставки", "Дата доставки"
+                "Комментарий", "User ID"
             ];
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SPREADSHEET_ID,
@@ -161,7 +188,7 @@ async function ensureDailySheet(sheetName) {
             });
         }
     } catch (e) {
-        console.error("Ошибка создания листа:", e.message);
+        console.error("Ошибка настройки листа:", e.message);
     }
 }
 
@@ -297,21 +324,35 @@ app.post('/api/action', async (req, res) => {
             const orderId = `${typeLetter}-${datePartForId}-${nextNum}`;
 
             const totals = calculateOrderTotals(cart, products);
-            const nowTime = data.orderDetails.creationTime || new Date().toLocaleString("ru-RU");
+            
+            // --- ФОРМАТИРОВАНИЕ ДАННЫХ ---
+            // 1. Время без секунд (16.01.2026, 14:09)
+            const dateOptions = { 
+                year: 'numeric', month: 'numeric', day: 'numeric', 
+                hour: '2-digit', minute: '2-digit' 
+            };
+            const nowTime = new Date().toLocaleString("ru-RU", dateOptions);
+            
+            // 2. Телефон с формулой ="..." чтобы не было ошибки
+            const formattedPhone = `="${data.orderDetails.phone}"`;
 
+            // 3. Формирование строки заказа (НОВЫЙ ПОРЯДОК СТОЛБЦОВ)
+            // A: Заказ, B: Оформлен, C: Имя, D: Тел, E: Адрес, F: Тип, G: Товары, H: Сумма, I: Статус, J: Коммент, K: UID
             const orderData = [
-                orderId, nowTime, userId,
-                data.orderDetails.name, data.orderDetails.phone, data.orderDetails.address,
-                itemsList.join('\n'), totals.finalTotal, 'Новый',
-                data.orderDetails.comment,
+                orderId, 
+                nowTime, 
+                data.orderDetails.name, 
+                formattedPhone, 
+                data.orderDetails.address,
                 data.orderDetails.deliveryType,
-                data.orderDetails.deliveryDate
+                itemsList.join('\n'), 
+                totals.finalTotal + ' ₽', 
+                'Новый',
+                data.orderDetails.comment,
+                userId // Скрытая колонка
             ];
 
-            // 1. Записываем заказ
             await appendRow(targetSheetName, orderData);
-
-            // 2. 🔥 ОБНОВЛЯЕМ СВОДКУ СПРАВА 🔥
             await updateDailySummary(targetSheetName);
 
             const rowIndex = cartRows.findIndex(r => r[0] == userId) + 1;
