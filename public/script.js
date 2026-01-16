@@ -8,7 +8,6 @@ const IS_LOCAL_MODE = false;
 const API_URL = '';
 const userId = tg.initDataUnsafe?.user?.id || 'test_user_777';
 
-// --- ЗАГЛУШКИ ---
 const MOCK_PRODUCTS = [
     { id: '1', name: 'Лаваш Тонкий', price: 60, stock: 100, imageUrl: 'https://via.placeholder.com/150', description: 'Армянский лаваш, 10 шт' },
 ];
@@ -19,10 +18,6 @@ let state = {
     totals: { finalTotal: 0, deliveryCost: 0, totalQty: 0 }
 };
 
-let debounceTimers = {}; 
-let pendingChanges = {};
-
-// --- ИНИЦИАЛИЗАЦИЯ ---
 document.addEventListener('DOMContentLoaded', async () => {
     const dateInput = document.getElementById('custom-date');
     if (dateInput) {
@@ -38,7 +33,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (nameField) nameField.value = [u.first_name, u.last_name].join(' ').trim();
     }
 
-    // --- МАСКА ТЕЛЕФОНА ---
     const phoneInput = document.getElementById('phone');
     if (phoneInput) {
         phoneInput.addEventListener('input', onPhoneInput);
@@ -46,17 +40,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         phoneInput.addEventListener('paste', onPhonePaste);
     }
 
-    await Promise.all([loadProducts(), loadCart()]);
+    // Загружаем только товары. Корзина локальная и пустая при старте.
+    await loadProducts();
+    
+    // Если хотите сохранять корзину между сессиями на телефоне (не в Google Sheets):
+    // const savedCart = localStorage.getItem('myAppCart');
+    // if (savedCart) { state.cart = JSON.parse(savedCart); calculateTotals(); updateCartUI(); }
 
     document.getElementById('loader').style.display = 'none';
     document.getElementById('app').style.display = 'block';
 });
 
-// --- ЛОГИКА МАСКИ ТЕЛЕФОНА (+7 (XXX) XXX XX XX) ---
-function getInputNumbersValue(input) {
-    return input.value.replace(/\D/g, '');
-}
-
+// --- МАСКА ТЕЛЕФОНА ---
+function getInputNumbersValue(input) { return input.value.replace(/\D/g, ''); }
 function onPhonePaste(e) {
     const input = e.target;
     const inputNumbersValue = getInputNumbersValue(input);
@@ -69,59 +65,37 @@ function onPhonePaste(e) {
         }
     }
 }
-
 function onPhoneInput(e) {
     const input = e.target;
     let inputNumbersValue = getInputNumbersValue(input);
     let selectionStart = input.selectionStart;
     let formattedInputValue = "";
-
-    if (!inputNumbersValue) {
-        return input.value = "";
-    }
-
+    if (!inputNumbersValue) return input.value = "";
     if (input.value.length != selectionStart) {
-        if (e.data && /\D/g.test(e.data)) {
-            input.value = inputNumbersValue;
-        }
+        if (e.data && /\D/g.test(e.data)) input.value = inputNumbersValue;
         return;
     }
-
     if (["7", "8", "9"].indexOf(inputNumbersValue[0]) > -1) {
         if (inputNumbersValue[0] == "9") inputNumbersValue = "7" + inputNumbersValue;
-        
         let firstSymbols = "+7"; 
         formattedInputValue = input.value = firstSymbols + " ";
-        
-        if (inputNumbersValue.length > 1) {
-            formattedInputValue += "(" + inputNumbersValue.substring(1, 4);
-        }
-        if (inputNumbersValue.length >= 5) {
-            formattedInputValue += ") " + inputNumbersValue.substring(4, 7);
-        }
-        if (inputNumbersValue.length >= 8) {
-            formattedInputValue += " " + inputNumbersValue.substring(7, 9);
-        }
-        if (inputNumbersValue.length >= 10) {
-            formattedInputValue += " " + inputNumbersValue.substring(9, 11);
-        }
+        if (inputNumbersValue.length > 1) formattedInputValue += "(" + inputNumbersValue.substring(1, 4);
+        if (inputNumbersValue.length >= 5) formattedInputValue += ") " + inputNumbersValue.substring(4, 7);
+        if (inputNumbersValue.length >= 8) formattedInputValue += " " + inputNumbersValue.substring(7, 9);
+        if (inputNumbersValue.length >= 10) formattedInputValue += " " + inputNumbersValue.substring(9, 11);
     } else {
         formattedInputValue = "+" + inputNumbersValue.substring(0, 16);
     }
     input.value = formattedInputValue;
 }
-
 function onPhoneKeyDown(e) {
     const inputValue = e.target.value.replace(/\D/g, '');
-    if (e.keyCode == 8 && inputValue.length == 1) {
-        e.target.value = "";
-    }
+    if (e.keyCode == 8 && inputValue.length == 1) e.target.value = "";
 }
 
 // --- НАВИГАЦИЯ ---
 function showCatalog() { switchView('catalog'); }
 function showCart() { switchView('cart'); }
-
 function switchView(viewName) {
     const catalogView = document.getElementById('catalog-view');
     const cartView = document.getElementById('cart-view');
@@ -160,25 +134,8 @@ async function loadProducts() {
     } catch (e) { console.error("Ошибка загрузки товаров", e); }
 }
 
-async function loadCart() {
-    try {
-        if (IS_LOCAL_MODE) {
-            state.cart = [];
-            calculateTotals();
-        } else {
-            const res = await fetch(`${API_URL}/api/get_cart?userId=${userId}`);
-            const data = await res.json();
-            if (data.cart) {
-                state.cart = data.cart;
-                calculateTotals();
-                updateCartUI();
-            }
-        }
-    } catch (e) { console.error(e); }
-}
-
-// --- КОРЗИНА ---
-async function changeQty(itemId, delta) {
+// --- КОРЗИНА (ЛОКАЛЬНАЯ) ---
+function changeQty(itemId, delta) {
     tg.HapticFeedback.selectionChanged();
 
     const product = state.products.find(p => p.id === itemId);
@@ -200,6 +157,9 @@ async function changeQty(itemId, delta) {
         state.cart.push({ id: itemId, qty: newQty });
     }
 
+    // Сохраняем локально (если нужно, раскомментируйте)
+    // localStorage.setItem('myAppCart', JSON.stringify(state.cart));
+
     calculateTotals();
     updateCartUI();    
     
@@ -208,41 +168,13 @@ async function changeQty(itemId, delta) {
     } else {
         renderProducts();
     }
-
-    if (IS_LOCAL_MODE) return;
-
-    if (debounceTimers[itemId]) clearTimeout(debounceTimers[itemId]);
-
-    if (!pendingChanges[itemId]) pendingChanges[itemId] = 0;
-    pendingChanges[itemId] += delta;
-
-    debounceTimers[itemId] = setTimeout(async () => {
-        const finalDelta = pendingChanges[itemId];
-        if (finalDelta === 0) {
-            delete pendingChanges[itemId];
-            return;
-        }
-        try {
-            await fetch(`${API_URL}/api/action`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'add_to_cart',
-                    userId: userId,
-                    itemId: itemId,
-                    quantity: finalDelta
-                })
-            });
-            delete pendingChanges[itemId];
-        } catch (e) {
-            console.error("Ошибка синхронизации", e);
-        }
-    }, 1000);
+    
+    // БОЛЬШЕ НЕ ОТПРАВЛЯЕМ ЗАПРОС НА СЕРВЕР ТУТ!
 }
 
-async function removeItem(itemId) {
+function removeItem(itemId) {
     const item = state.cart.find(i => i.id === itemId);
-    if (item) await changeQty(itemId, -item.qty);
+    if (item) changeQty(itemId, -item.qty);
 }
 
 // 🔥 ОФОРМЛЕНИЕ ЗАКАЗА 🔥
@@ -255,13 +187,11 @@ async function submitOrder() {
 
     const rawDate = document.getElementById('custom-date').value;
     
-    if (!rawDate && !IS_LOCAL_MODE) {
-        return tg.showAlert("Выберите дату доставки!");
-    }
+    if (!rawDate && !IS_LOCAL_MODE) return tg.showAlert("Выберите дату доставки!");
+    if (!state.cart.length) return tg.showAlert("Корзина пуста!");
 
     const dateVal = rawDate ? formatSmartDate(rawDate) : '';
     
-    // В локальном режиме
     if (IS_LOCAL_MODE) {
         tg.showAlert(`🔶 [LOCAL] Заказ оформлен!\n📅 Дата: ${dateVal}`);
         state.cart = [];
@@ -283,6 +213,7 @@ async function submitOrder() {
             body: JSON.stringify({
                 action: 'place_order',
                 userId: userId,
+                cart: state.cart, // 🔥 ОТПРАВЛЯЕМ КОРЗИНУ ПРЯМО ЗДЕСЬ
                 orderDetails: {
                     name, phone, address, deliveryType,
                     deliveryDate: dateVal,
@@ -296,6 +227,10 @@ async function submitOrder() {
         
         if (data.status === 'success') {
             tg.showAlert(data.message);
+            state.cart = []; // Очищаем локальную корзину
+            calculateTotals();
+            updateCartUI();
+            // localStorage.removeItem('myAppCart'); // Если используете
             tg.close();
         } else {
             tg.showAlert("Ошибка: " + data.message);
@@ -320,21 +255,18 @@ function calculateTotals() {
         }
     });
 
-    const deliveryCost = 0; 
     state.totals = {
         totalItemsAmount,
-        deliveryCost,
-        finalTotal: totalItemsAmount + deliveryCost,
+        deliveryCost: 0,
+        finalTotal: totalItemsAmount,
         totalQty
     };
 }
 
 function updateCartUI() {
-    const delCostElem = document.getElementById('delivery-cost');
     const totalElem = document.getElementById('total-price');
     const badge = document.getElementById('cart-badge');
 
-    if (delCostElem) delCostElem.innerText = `${state.totals.deliveryCost} ₽`;
     if (totalElem) totalElem.innerText = `${state.totals.finalTotal} ₽`;
     
     if (badge) {
@@ -433,18 +365,11 @@ function updatePrettyDate(dateInput) {
 function formatSmartDate(isoDateString) {
     if (!isoDateString) return '';
     const dateObj = new Date(isoDateString + 'T12:00:00');
-    
     const weekDays = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
     const monthsGenitive = ['Января', 'Февраля', 'Марта', 'Апреля', 'Мая', 'Июня', 'Июля', 'Августа', 'Сентября', 'Октября', 'Ноября', 'Декабря'];
-
-    const dayName = weekDays[dateObj.getDay()];
-    const dayNum = dateObj.getDate();
-    const monthName = monthsGenitive[dateObj.getMonth()];
-    
-    return `${dayName}, ${dayNum} ${monthName}`;
+    return `${weekDays[dateObj.getDay()]}, ${dateObj.getDate()} ${monthsGenitive[dateObj.getMonth()]}`;
 }
 
-// --- EXPORT ---
 window.updatePrettyDate = updatePrettyDate;
 window.removeItem = removeItem;
 window.changeQty = changeQty;
