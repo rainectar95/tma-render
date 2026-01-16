@@ -12,13 +12,13 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- CONFIGURATION ---
+// --- КОНФИГУРАЦИЯ ---
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_PRODUCTS = "Товары";
 const SHEET_CARTS = "Корзины";
-const SHEET_CLIENTS = "Клиенты"; // New Sheet for CRM
+const SHEET_CLIENTS = "Клиенты";
 
-// --- GOOGLE AUTH ---
+// --- АВТОРИЗАЦИЯ ---
 const auth = new google.auth.GoogleAuth({
     credentials: {
         client_email: process.env.GOOGLE_CLIENT_EMAIL,
@@ -28,7 +28,7 @@ const auth = new google.auth.GoogleAuth({
 });
 const sheets = google.sheets({ version: 'v4', auth });
 
-// --- HELPERS ---
+// --- ХЕЛПЕРЫ ---
 async function getSheetData(range) {
     try {
         const response = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range });
@@ -48,7 +48,7 @@ async function appendRow(range, values) {
     });
 }
 
-// --- SHEET SORTING (Chronological) ---
+// --- СОРТИРОВКА ЛИСТОВ ---
 async function sortSheetsByDate() {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -58,7 +58,6 @@ async function sortSheetsByDate() {
 
         allSheets.forEach(sheet => {
             const title = sheet.properties.title;
-            // Regex to check for DD.MM.YYYY
             if (/^\d{2}\.\d{2}\.\d{4}$/.test(title)) {
                 dateSheets.push(sheet);
             } else {
@@ -88,7 +87,7 @@ async function sortSheetsByDate() {
         if (requests.length > 0) {
             await sheets.spreadsheets.batchUpdate({ spreadsheetId: SPREADSHEET_ID, resource: { requests } });
         }
-    } catch (e) { console.error("Sort Error:", e.message); }
+    } catch (e) { console.error("Ошибка сортировки:", e.message); }
 }
 
 function parseDate(str) {
@@ -96,7 +95,7 @@ function parseDate(str) {
     return new Date(parts[2], parts[1] - 1, parts[0]);
 }
 
-// --- DAILY SUMMARY (Right side of daily sheet) ---
+// --- СВОДКА ДНЯ ---
 async function updateDailySummary(sheetName) {
     try {
         const rows = await getSheetData(`${sheetName}!G2:G`);
@@ -116,31 +115,28 @@ async function updateDailySummary(sheetName) {
         });
         const summaryData = [['📦 ИТОГО НА ДЕНЬ', 'КОЛ-ВО']];
         for (const [name, qty] of Object.entries(totals)) summaryData.push([name, qty]);
-        
-        // Clear previous summary
         await sheets.spreadsheets.values.clear({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!N1:O100` });
-        // Write new summary
         await sheets.spreadsheets.values.update({
             spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!N1`, valueInputOption: 'USER_ENTERED', resource: { values: summaryData }
         });
-    } catch (e) { console.error("Summary Error:", e); }
+    } catch (e) { console.error("Ошибка сводки:", e); }
 }
 
-// --- DAILY SHEET MANAGEMENT ---
+// --- УПРАВЛЕНИЕ ЛИСТАМИ (ДНИ) ---
 async function ensureDailySheet(sheetName) {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
         const sheetExists = meta.data.sheets.some(s => s.properties.title === sheetName);
 
         if (!sheetExists) {
-            console.log(`🎨 Creating daily sheet: ${sheetName}`);
+            console.log(`🎨 Создаем лист: ${sheetName}`);
             const createRes = await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] }
             });
             const newSheetId = createRes.data.replies[0].addSheet.properties.sheetId;
 
-            // Daily Sheet Styling
+            // Настройка стилей дня
             await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: {
@@ -151,7 +147,7 @@ async function ensureDailySheet(sheetName) {
                         { repeatCell: { range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 6, endColumnIndex: 7 }, cell: { userEnteredFormat: { horizontalAlignment: "LEFT", verticalAlignment: "MIDDLE" } }, fields: "userEnteredFormat" } },
                         { repeatCell: { range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 9, endColumnIndex: 10 }, cell: { userEnteredFormat: { wrapStrategy: "WRAP", horizontalAlignment: "CENTER", verticalAlignment: "MIDDLE" } }, fields: "userEnteredFormat" } },
                         
-                        // Column Widths
+                        // Ширина колонок
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, 
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 130 }, fields: "pixelSize" } }, 
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 120 }, fields: "pixelSize" } }, 
@@ -177,14 +173,37 @@ async function ensureDailySheet(sheetName) {
     } catch (e) { console.error("Daily Sheet Error:", e.message); }
 }
 
-// 🔥 CLIENTS DATABASE MANAGEMENT 🔥
+// 🔥 СОЗДАНИЕ ТЕХНИЧЕСКОГО ЛИСТА "КОРЗИНЫ" (ИСПРАВЛЕНИЕ ОШИБКИ) 🔥
+async function ensureCartsSheet() {
+    try {
+        const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+        const sheetExists = meta.data.sheets.some(s => s.properties.title === SHEET_CARTS);
+
+        if (!sheetExists) {
+            console.log(`🛒 Создаем лист: ${SHEET_CARTS}`);
+            await sheets.spreadsheets.batchUpdate({
+                spreadsheetId: SPREADSHEET_ID,
+                resource: { requests: [{ addSheet: { properties: { title: SHEET_CARTS } } }] }
+            });
+            // Добавляем заголовки, чтобы было понятно
+            await sheets.spreadsheets.values.update({ 
+                spreadsheetId: SPREADSHEET_ID, 
+                range: `${SHEET_CARTS}!A1`, 
+                valueInputOption: 'USER_ENTERED', 
+                resource: { values: [["User ID", "Данные корзины (JSON)", "Последнее обновление"]] } 
+            });
+        }
+    } catch (e) { console.error("Carts Sheet Error:", e.message); }
+}
+
+// 🔥 УПРАВЛЕНИЕ ЛИСТОМ "КЛИЕНТЫ" 🔥
 async function ensureClientsSheet() {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
         const sheetExists = meta.data.sheets.some(s => s.properties.title === SHEET_CLIENTS);
 
         if (!sheetExists) {
-            console.log(`👥 Creating Clients Database`);
+            console.log(`👥 Создаем базу клиентов`);
             const createRes = await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: { requests: [{ addSheet: { properties: { title: SHEET_CLIENTS } } }] }
@@ -195,20 +214,8 @@ async function ensureClientsSheet() {
                 spreadsheetId: SPREADSHEET_ID,
                 resource: {
                     requests: [
-                        { // Header: Bold + Center
-                            repeatCell: {
-                                range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 },
-                                cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: "CENTER" } },
-                                fields: "userEnteredFormat"
-                            }
-                        },
-                        { // Freeze Header
-                            updateSheetProperties: {
-                                properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } },
-                                fields: "gridProperties.frozenRowCount"
-                            }
-                        },
-                        // Column Widths: No(50), Name(150), Address(250), Phone(150), Order(300)
+                        { repeatCell: { range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 }, cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: "CENTER" } }, fields: "userEnteredFormat" } },
+                        { updateSheetProperties: { properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } }, fields: "gridProperties.frozenRowCount" } },
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 50 }, fields: "pixelSize" } },
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 150 }, fields: "pixelSize" } },
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 250 }, fields: "pixelSize" } },
@@ -218,28 +225,22 @@ async function ensureClientsSheet() {
                 }
             });
 
-            // Headers
             const headers = ["№", "Имя", "Адрес", "Номер телефона", "Последний заказ"];
             await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_CLIENTS}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headers] } });
         }
     } catch (e) { console.error("Client DB Error:", e.message); }
 }
 
-// 🔥 UPDATE CUSTOMER DATABASE 🔥
+// 🔥 ОБНОВЛЕНИЕ БАЗЫ КЛИЕНТОВ 🔥
 async function updateCustomerDatabase(customerData) {
     try {
         await ensureClientsSheet();
-        
-        // Read the database
         const rows = await getSheetData(`${SHEET_CLIENTS}!A2:E`);
-        const phoneToFind = customerData.phone; // Raw phone like "+7999..."
-
+        const phoneToFind = customerData.phone; 
         let foundIndex = -1;
 
-        // Search by Phone (Column D, index 3)
         for (let i = 0; i < rows.length; i++) {
             const cellVal = rows[i][3] || "";
-            // Clean both DB value and Input value to digits only for comparison
             const dbPhoneClean = cellVal.toString().replace(/\D/g, '');
             const inputPhoneClean = phoneToFind.toString().replace(/\D/g, '');
 
@@ -249,38 +250,20 @@ async function updateCustomerDatabase(customerData) {
             }
         }
 
-        const formattedPhone = `="${customerData.phone}"`; // Store as formula
+        const formattedPhone = `="${customerData.phone}"`; 
         
         if (foundIndex !== -1) {
-            // --- UPDATE EXISTING CLIENT ---
-            // Update: Name(B), Address(C), Phone(D), Order(E)
-            // Row index = foundIndex + 2 (because of A2 start)
             const sheetRow = foundIndex + 2;
-            
-            // Overwrite details to ensure latest address/name/order
             const updateRange = `${SHEET_CLIENTS}!B${sheetRow}:E${sheetRow}`;
             await updateRow(updateRange, [customerData.name, customerData.address, formattedPhone, customerData.items]);
             console.log(`🔄 Client updated: ${customerData.name}`);
-
         } else {
-            // --- CREATE NEW CLIENT ---
-            // ID = existing rows + 1
             const nextId = rows.length + 1;
-            
-            const newRow = [
-                nextId,              // No
-                customerData.name,   // Name
-                customerData.address,// Address
-                formattedPhone,      // Phone
-                customerData.items   // Order
-            ];
+            const newRow = [nextId, customerData.name, customerData.address, formattedPhone, customerData.items];
             await appendRow(SHEET_CLIENTS, newRow);
             console.log(`✅ New client added: ${customerData.name}`);
         }
-
-    } catch (e) {
-        console.error("Client Update Logic Error:", e);
-    }
+    } catch (e) { console.error("Client Update Logic Error:", e); }
 }
 
 function calculateOrderTotals(cart, products) {
@@ -322,6 +305,9 @@ app.get('/api/get_products', async (req, res) => {
 
 app.get('/api/get_cart', async (req, res) => {
     try {
+        // Убеждаемся, что лист корзин существует перед чтением
+        await ensureCartsSheet();
+        
         const userId = req.query.userId;
         const cartRows = await getSheetData(SHEET_CARTS);
         const userRow = cartRows.find(row => row[0] == userId);
@@ -338,6 +324,9 @@ app.post('/api/action', async (req, res) => {
     const { action, userId, ...data } = req.body;
     try {
         if (action === 'add_to_cart') {
+            // 🔥 ВАЖНО: Сначала проверяем/создаем лист корзин
+            await ensureCartsSheet();
+
             const cartRows = await getSheetData(SHEET_CARTS);
             let rowIndex = -1;
             let currentCart = [];
@@ -366,6 +355,9 @@ app.post('/api/action', async (req, res) => {
             res.json({ status: 'success', newCart: currentCart, newTotals: calculateOrderTotals(currentCart, productsSimple) });
         }
         else if (action === 'place_order') {
+            // Тоже проверяем, чтобы не упало при чтении
+            await ensureCartsSheet();
+
             const cartRows = await getSheetData(SHEET_CARTS);
             const userRow = cartRows.find(r => r[0] == userId);
             if (!userRow) throw new Error("Cart empty");
@@ -436,16 +428,10 @@ app.post('/api/action', async (req, res) => {
                 userId 
             ];
 
-            // 1. Write order to daily sheet
             await appendRow(targetSheetName, orderData);
-            
-            // 2. Update daily summary (right side)
             await updateDailySummary(targetSheetName);
-            
-            // 3. Sort sheets
             await sortSheetsByDate();
 
-            // 4. 🔥 UPDATE CLIENT DATABASE 🔥
             await updateCustomerDatabase({
                 name: data.orderDetails.name,
                 phone: data.orderDetails.phone,
@@ -453,7 +439,6 @@ app.post('/api/action', async (req, res) => {
                 items: productsString
             });
 
-            // Clear cart
             const rowIndex = cartRows.findIndex(r => r[0] == userId) + 1;
             await updateRow(`${SHEET_CARTS}!B${rowIndex}`, ["[]"]);
             cache.del("products");
