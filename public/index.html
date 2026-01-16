@@ -24,36 +24,63 @@
                 <div id="product-list" class="product-grid"></div>
             </div>
 
-            <div id="cart-view" class="hidden">
+<div id="cart-view" class="hidden">
                 <div class="cart-section">
                     <h2 class="section-title">Ваш заказ</h2>
                     <div id="cart-items-list"></div>
                 </div>
 
                 <div class="cart-section">
-                    <h2 class="section-title">Ваши данные</h2>
+                    <h2 class="section-title">Контактные данные</h2>
                     <div class="order-form">
-                        <input type="text" id="name" placeholder="Ваше имя" required>
-                        <input type="tel" id="phone" placeholder="Телефон" required>
-                        <textarea id="address" placeholder="Адрес доставки" rows="2" required></textarea>
+                        <input type="text" id="name" placeholder="Ваше имя" required class="input-field">
+                        <input type="tel" id="phone" placeholder="Телефон" required class="input-field mt-2">
                     </div>
                 </div>
+
                 <div class="cart-section">
-                    <h2 class="section-title">Дата доставки</h2>
+                    <h2 class="section-title">Способ получения</h2>
                     <div class="order-form">
-                        <select id="delivery-type" class="mt-2">
-                            <option value="Доставка">Курьерская доставка</option>
+                        <select id="delivery-type" class="input-field" onchange="toggleDeliveryFields()">
+                            <option value="Курьерская доставка" selected>Курьерская доставка</option>
                             <option value="Самовывоз">Самовывоз</option>
                         </select>
 
-                        <div class="custom-date-picker mt-2">
-                            <input type="text" id="date-display" placeholder="Выберите дату" readonly>
+                        <div id="courier-fields" class="mt-2">
+                            <div class="address-row">
+                                <div class="input-wrapper wide">
+                                    <input type="text" id="address-street" class="input-field" placeholder="Улица (напр. Садовая)">
+                                </div>
+                                <div class="input-wrapper narrow">
+                                    <input type="text" id="address-house" class="input-field" placeholder="Дом">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="pickup-info" class="pickup-block hidden mt-2">
+                            <div class="pickup-label">Заказ можно забрать по адресу:</div>
+                            <div class="pickup-address">ул. Предпортовая, д. 10</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cart-section">
+                    <h2 class="section-title">Детали заказа</h2>
+                    <div class="order-form">
+                        <div class="custom-date-picker">
+                            <input type="text" id="date-display" class="input-field" placeholder="Выберите дату доставки" readonly>
                             <img class="icon-date" src="./img/date.svg" alt="calendar">
                             <input type="date" id="custom-date" onchange="updatePrettyDate(this)">
                         </div>
-                        <textarea id="comment" placeholder="Комментарий к заказу" rows="2" class="mt-2"></textarea>
+                        <textarea id="comment" placeholder="Комментарий к заказу" rows="2" class="input-field mt-2"></textarea>
                     </div>
                 </div>
+
+                <div class="cart-summary">
+                    <div class="summary-row total"><span>Итого:</span><span id="total-price">0 ₽</span></div>
+                </div>
+                <button class="btn-main" onclick="submitOrder()">Оформить заказ</button>
+            </div>
 
                 <div class="cart-summary">
                     <div class="summary-row total"><span>Итого:</span><span id="total-price">0 ₽</span></div>
@@ -81,5 +108,6 @@
     </div>
     <script src="script.js"></script>
 </body>
+
 
 </html>
