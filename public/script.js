@@ -40,12 +40,34 @@ document.addEventListener('DOMContentLoaded', async () => {
         phoneInput.addEventListener('paste', onPhonePaste);
     }
 
-    // Загружаем только товары. Корзина локальная и пустая при старте.
+    // 1. Загружаем свежие товары
     await loadProducts();
     
-    // Если хотите сохранять корзину между сессиями на телефоне (не в Google Sheets):
-    // const savedCart = localStorage.getItem('myAppCart');
-    // if (savedCart) { state.cart = JSON.parse(savedCart); calculateTotals(); updateCartUI(); }
+    // 2. 🔥 Восстанавливаем корзину из памяти телефона
+    const savedCart = localStorage.getItem('myAppCart');
+    if (savedCart) {
+        try {
+            const parsedCart = JSON.parse(savedCart);
+            // Проверяем актуальность остатков
+            state.cart = parsedCart.filter(item => {
+                const product = state.products.find(p => p.id === item.id);
+                // Оставляем товар, только если он существует
+                return !!product; 
+            }).map(item => {
+                const product = state.products.find(p => p.id === item.id);
+                // Если товара на складе меньше, чем в корзине - уменьшаем
+                if (product.stock > 0 && item.qty > product.stock) {
+                    item.qty = product.stock;
+                }
+                return item;
+            });
+            calculateTotals();
+            updateCartUI();
+        } catch (e) {
+            console.error("Ошибка восстановления корзины", e);
+            localStorage.removeItem('myAppCart');
+        }
+    }
 
     document.getElementById('loader').style.display = 'none';
     document.getElementById('app').style.display = 'block';
@@ -157,8 +179,8 @@ function changeQty(itemId, delta) {
         state.cart.push({ id: itemId, qty: newQty });
     }
 
-    // Сохраняем локально (если нужно, раскомментируйте)
-    // localStorage.setItem('myAppCart', JSON.stringify(state.cart));
+    // 🔥 Сохраняем в память телефона
+    localStorage.setItem('myAppCart', JSON.stringify(state.cart));
 
     calculateTotals();
     updateCartUI();    
@@ -168,8 +190,6 @@ function changeQty(itemId, delta) {
     } else {
         renderProducts();
     }
-    
-    // БОЛЬШЕ НЕ ОТПРАВЛЯЕМ ЗАПРОС НА СЕРВЕР ТУТ!
 }
 
 function removeItem(itemId) {
@@ -213,7 +233,7 @@ async function submitOrder() {
             body: JSON.stringify({
                 action: 'place_order',
                 userId: userId,
-                cart: state.cart, // 🔥 ОТПРАВЛЯЕМ КОРЗИНУ ПРЯМО ЗДЕСЬ
+                cart: state.cart, 
                 orderDetails: {
                     name, phone, address, deliveryType,
                     deliveryDate: dateVal,
@@ -227,10 +247,11 @@ async function submitOrder() {
         
         if (data.status === 'success') {
             tg.showAlert(data.message);
-            state.cart = []; // Очищаем локальную корзину
+            // Очищаем корзину и память
+            state.cart = []; 
+            localStorage.removeItem('myAppCart');
             calculateTotals();
             updateCartUI();
-            // localStorage.removeItem('myAppCart'); // Если используете
             tg.close();
         } else {
             tg.showAlert("Ошибка: " + data.message);
