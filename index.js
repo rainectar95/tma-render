@@ -6,7 +6,7 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
-const cache = new NodeCache({ stdTTL: 600 }); // Кэш памяти сервера (не телефона)
+const cache = new NodeCache({ stdTTL: 600 }); 
 
 app.use(cors());
 app.use(express.json());
@@ -32,9 +32,7 @@ async function getSheetData(range) {
     try {
         const response = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range });
         return response.data.values || [];
-    } catch (e) {
-        return [];
-    }
+    } catch (e) { return []; }
 }
 
 async function updateRow(range, values) {
@@ -49,73 +47,112 @@ async function appendRow(range, values) {
     });
 }
 
-// 🔥 СОЗДАНИЕ КРАСИВОГО ЛИСТА (С ФОРМАТИРОВАНИЕМ) 🔥
+// 🔥 ФУНКЦИЯ ПОДСЧЕТА ИТОГОВ НА ДЕНЬ 🔥
+async function updateDailySummary(sheetName) {
+    try {
+        // 1. Читаем колонку G (Товары) со всего листа
+        const rows = await getSheetData(`${sheetName}!G2:G`);
+        const totals = {};
+
+        // 2. Считаем сумму каждого товара
+        rows.forEach(row => {
+            if (!row[0]) return;
+            // Пример строки: "Лаваш x 2\nСыр x 1"
+            const lines = row[0].split('\n');
+            lines.forEach(line => {
+                // Ищем "Название x Число"
+                // Regex: берет всё до " x ", потом число
+                const match = line.match(/(.+) x (\d+)$/);
+                if (match) {
+                    const name = match[1].trim();
+                    const qty = parseInt(match[2], 10);
+                    
+                    if (!totals[name]) totals[name] = 0;
+                    totals[name] += qty;
+                }
+            });
+        });
+
+        // 3. Формируем таблицу для записи
+        const summaryData = [['📦 ИТОГО НА ДЕНЬ', 'КОЛ-ВО']]; // Заголовок
+        for (const [name, qty] of Object.entries(totals)) {
+            summaryData.push([name, qty]);
+        }
+
+        // 4. Пишем в колонки N (14) и O (15)
+        // Сначала очистим диапазон (на всякий случай, если товаров стало меньше)
+        await sheets.spreadsheets.values.clear({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `${sheetName}!N1:O100`
+        });
+
+        // Записываем новые данные
+        await sheets.spreadsheets.values.update({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `${sheetName}!N1`,
+            valueInputOption: 'USER_ENTERED',
+            resource: { values: summaryData }
+        });
+
+        // (Опционально) Можно покрасить заголовок сводки, но чтобы не крашить сервер - оставим просто текст
+        
+    } catch (e) {
+        console.error("Ошибка обновления сводки:", e);
+    }
+}
+
+// --- СОЗДАНИЕ ЛИСТА ---
 async function ensureDailySheet(sheetName) {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
         const sheetExists = meta.data.sheets.some(s => s.properties.title === sheetName);
 
         if (!sheetExists) {
-            console.log(`🎨 Создаем и красим лист: ${sheetName}`);
+            console.log(`🎨 Создаем лист: ${sheetName}`);
             
             // 1. Создаем лист
             const createRes = await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] }
             });
-            
-            // Получаем ID нового листа (нужен для настройки колонок)
             const newSheetId = createRes.data.replies[0].addSheet.properties.sheetId;
 
-            // 2. Настраиваем красоту (отдельный запрос, чтобы не сбойнуло создание)
+            // 2. Наводим красоту
             try {
                 await sheets.spreadsheets.batchUpdate({
                     spreadsheetId: SPREADSHEET_ID,
                     resource: {
                         requests: [
-                            // Жирная шапка
-                            {
+                            { // Жирная шапка (строка 1)
                                 repeatCell: {
                                     range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 },
                                     cell: { userEnteredFormat: { textFormat: { bold: true } } },
                                     fields: "userEnteredFormat.textFormat.bold"
                                 }
                             },
-                            // Закрепить 1-ю строку
-                            {
+                            { // Закрепить шапку
                                 updateSheetProperties: {
                                     properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } },
                                     fields: "gridProperties.frozenRowCount"
                                 }
                             },
-                            // Ширина колонок (в пикселях)
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, // ID
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 140 }, fields: "pixelSize" } }, // Время
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 90 }, fields: "pixelSize" } },  // UID
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 }, properties: { pixelSize: 150 }, fields: "pixelSize" } }, // Имя
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 4, endIndex: 5 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }, // Тел
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 5, endIndex: 6 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, // Адрес
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 }, properties: { pixelSize: 300 }, fields: "pixelSize" } }, // Товары (Широкая)
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 7, endIndex: 8 }, properties: { pixelSize: 80 }, fields: "pixelSize" } },  // Сумма
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, properties: { pixelSize: 90 }, fields: "pixelSize" } },  // Статус
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 9, endIndex: 10 }, properties: { pixelSize: 150 }, fields: "pixelSize" } }, // Коммент
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 10, endIndex: 11 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }, // Тип
-                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 11, endIndex: 12 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }  // Дата
+                            // Ширина колонок
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, 
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 }, properties: { pixelSize: 300 }, fields: "pixelSize" } }, // Товары
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 13, endIndex: 14 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, // N (Сводка Товар)
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 14, endIndex: 15 }, properties: { pixelSize: 80 }, fields: "pixelSize" } }   // O (Сводка Кол-во)
                         ]
                     }
                 });
-            } catch (styleError) {
-                console.error("Ошибка стиля (не критично):", styleError.message);
-            }
+            } catch (e) { console.error("Ошибка стиля:", e.message); }
 
-            // 3. Пишем заголовки
+            // 3. Шапка таблицы
             const headers = [
                 "ID Заказа", "Время создания", "User ID", 
                 "Имя", "Телефон", "Адрес", 
                 "Товары", "Сумма", "Статус", 
                 "Комментарий", "Тип доставки", "Дата доставки"
             ];
-            
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SPREADSHEET_ID,
                 range: `${sheetName}!A1`,
@@ -124,7 +161,7 @@ async function ensureDailySheet(sheetName) {
             });
         }
     } catch (e) {
-        console.error("Критическая ошибка создания листа:", e.message);
+        console.error("Ошибка создания листа:", e.message);
     }
 }
 
@@ -239,11 +276,10 @@ app.post('/api/action', async (req, res) => {
             let targetSheetName = "";
 
             if (data.orderDetails.deliveryRaw && data.orderDetails.deliveryRaw.includes('-')) {
-                const parts = data.orderDetails.deliveryRaw.split('-'); // "2026-01-30"
+                const parts = data.orderDetails.deliveryRaw.split('-'); 
                 datePartForId = `${parts[2]}.${parts[1]}`;
                 targetSheetName = `${parts[2]}.${parts[1]}.${parts[0]}`;
             } else {
-                console.log("⚠️ Используем сегодняшнюю дату (клиент не прислал выбор)");
                 const now = new Date();
                 const d = String(now.getDate()).padStart(2, '0');
                 const m = String(now.getMonth() + 1).padStart(2, '0');
@@ -252,10 +288,8 @@ app.post('/api/action', async (req, res) => {
                 targetSheetName = `${d}.${m}.${y}`;
             }
 
-            // Создаем и красим лист
             await ensureDailySheet(targetSheetName);
 
-            // Генерируем ID
             const existingRows = await getSheetData(`${targetSheetName}!A:A`);
             const count = existingRows ? existingRows.length : 0;
             const nextNum = String(count === 0 ? 1 : count).padStart(3, '0');
@@ -274,7 +308,11 @@ app.post('/api/action', async (req, res) => {
                 data.orderDetails.deliveryDate
             ];
 
+            // 1. Записываем заказ
             await appendRow(targetSheetName, orderData);
+
+            // 2. 🔥 ОБНОВЛЯЕМ СВОДКУ СПРАВА 🔥
+            await updateDailySummary(targetSheetName);
 
             const rowIndex = cartRows.findIndex(r => r[0] == userId) + 1;
             await updateRow(`${SHEET_CARTS}!B${rowIndex}`, ["[]"]);
