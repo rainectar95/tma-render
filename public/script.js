@@ -20,6 +20,11 @@ let state = {
     totals: { finalTotal: 0, deliveryCost: 0, totalQty: 0 }
 };
 
+// Хранилище таймеров для каждого товара
+let debounceTimers = {}; 
+// Хранилище накопленных изменений (например, { 'id_123': 5 })
+let pendingChanges = {};
+
 // Очередь запросов (чтобы не путать сервер частыми кликами)
 let syncQueue = Promise.resolve();
 
@@ -141,23 +146,20 @@ async function loadCart() {
 
 // 🔥 ГЛАВНАЯ ФУНКЦИЯ УСКОРЕНИЯ 🔥
 async function changeQty(itemId, delta) {
-    tg.HapticFeedback.selectionChanged(); // Приятная вибрация
+    tg.HapticFeedback.selectionChanged();
 
-    // 1. Проверка ограничений (Сток)
+    // --- 1. ПРОВЕРКИ И ОГРАНИЧЕНИЯ (как и было) ---
     const product = state.products.find(p => p.id === itemId);
     const cartItem = state.cart.find(i => i.id === itemId);
     const currentQty = cartItem ? cartItem.qty : 0;
     const newQty = currentQty + delta;
 
-    // Если пытаемся купить больше, чем есть на складе
     if (product && product.stock > 0 && newQty > product.stock) {
-        tg.showAlert(`Доступно всего ${product.stock} шт.`);
-        return;
+        return tg.showAlert(`Доступно всего ${product.stock} шт.`);
     }
-    // Нельзя меньше 0 (но 0 можно = удаление)
-    if (newQty < 0) return;
+    if (newQty < 0) return; // Нельзя меньше 0 (но 0 можно = удаление)
 
-    // 2. ОПТИМИСТИЧНОЕ ОБНОВЛЕНИЕ (Мгновенно меняем State)
+    // --- 2. OPTIMISTIC UI (Меняем интерфейс мгновенно) ---
     if (cartItem) {
         cartItem.qty = newQty;
         if (cartItem.qty <= 0) {
@@ -167,23 +169,41 @@ async function changeQty(itemId, delta) {
         state.cart.push({ id: itemId, qty: newQty });
     }
 
-    // 3. МГНОВЕННО ПЕРЕРИСОВЫВАЕМ ИНТЕРФЕЙС
-    calculateTotals(); // Пересчитать деньги
-    updateCartUI();    // Обновить шапку/футер
+    calculateTotals(); // Пересчет денег
+    updateCartUI();    // Обновление шапки
     
-    // Перерисовываем только нужные части, чтобы не мигало
-    // Если мы в корзине - обновляем корзину
+    // Перерисовка нужного экрана
     if (!document.getElementById('cart-view').classList.contains('hidden')) {
         renderCart();
     } else {
-        renderProducts(); // Если в каталоге - кнопки каталога
+        renderProducts();
     }
 
-    // 4. ОТПРАВЛЯЕМ НА СЕРВЕР (В ФОНЕ)
+    // --- 3. DEBOUNCING (Магия оптимизации) ---
     if (IS_LOCAL_MODE) return;
 
-    // Добавляем запрос в очередь, чтобы они шли по порядку
-    syncQueue = syncQueue.then(async () => {
+    // Сбрасываем предыдущий таймер для этого товара, если он был
+    if (debounceTimers[itemId]) {
+        clearTimeout(debounceTimers[itemId]);
+    }
+
+    // Накапливаем изменения
+    // Если нажали +1, потом еще +1, в pendingChanges будет +2
+    if (!pendingChanges[itemId]) pendingChanges[itemId] = 0;
+    pendingChanges[itemId] += delta;
+
+    // Заводим новый таймер на 1 секунду
+    debounceTimers[itemId] = setTimeout(async () => {
+        const finalDelta = pendingChanges[itemId];
+        
+        // Если сумма изменений 0 (например, нажали +1, потом -1), то слать ничего не надо
+        if (finalDelta === 0) {
+            delete pendingChanges[itemId];
+            return;
+        }
+
+        console.log(`📡 Отправляем на сервер для ${itemId}: ${finalDelta} шт.`);
+        
         try {
             await fetch(`${API_URL}/api/action`, {
                 method: 'POST',
@@ -192,15 +212,15 @@ async function changeQty(itemId, delta) {
                     action: 'add_to_cart',
                     userId: userId,
                     itemId: itemId,
-                    quantity: delta // Отправляем +1 или -1
+                    quantity: finalDelta // Отправляем СУММУ кликов
                 })
             });
-            // Ответ сервера нам особо не нужен, мы уже все нарисовали сами
+            // Успех - очищаем очередь для этого товара
+            delete pendingChanges[itemId];
         } catch (e) {
-            console.error("Ошибка синхронизации с сервером", e);
-            // В идеале тут можно показать маленькую ошибку, но пока пропустим
+            console.error("Ошибка синхронизации", e);
         }
-    });
+    }, 1000); // Ждем 1000 мс (1 секунду) после последнего клика
 }
 
 async function removeItem(itemId) {
@@ -415,3 +435,4 @@ window.changeQty = changeQty;
 window.submitOrder = submitOrder;
 window.showCatalog = showCatalog;
 window.showCart = showCart;
+
