@@ -16,9 +16,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_PRODUCTS = "Товары";
 const SHEET_CARTS = "Корзины";
-// Убрали BASE_DELIVERY_COST и FREE_DELIVERY_THRESHOLD
 
-// --- АВТОРИЗАЦИЯ GOOGLE ---
+// --- АВТОРИЗАЦИЯ ---
 const auth = new google.auth.GoogleAuth({
     credentials: {
         client_email: process.env.GOOGLE_CLIENT_EMAIL,
@@ -29,12 +28,12 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: 'v4', auth });
 
 // --- ХЕЛПЕРЫ ---
-
 async function getSheetData(range) {
     try {
         const response = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range });
         return response.data.values || [];
     } catch (e) {
+        console.error(`Ошибка чтения ${range}:`, e.message);
         return [];
     }
 }
@@ -51,7 +50,7 @@ async function appendRow(range, values) {
     });
 }
 
-// Проверка и создание листа по дате
+// УПРОЩЕННАЯ ФУНКЦИЯ СОЗДАНИЯ ЛИСТА
 async function ensureDailySheet(sheetName) {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -60,51 +59,15 @@ async function ensureDailySheet(sheetName) {
         if (!sheetExists) {
             console.log(`📝 Создаем новый лист: ${sheetName}`);
             
-            // 1. Создаем лист и получаем ID
-            const createRes = await sheets.spreadsheets.batchUpdate({
+            // 1. Просто создаем лист (без сложного форматирования)
+            await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] }
             });
-            const newSheetId = createRes.data.replies[0].addSheet.properties.sheetId;
 
-            // 2. Форматирование (Жирный шрифт, закрепление, ширина)
-            await sheets.spreadsheets.batchUpdate({
-                spreadsheetId: SPREADSHEET_ID,
-                resource: {
-                    requests: [
-                        {
-                            repeatCell: {
-                                range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 },
-                                cell: { userEnteredFormat: { textFormat: { bold: true } } },
-                                fields: "userEnteredFormat.textFormat.bold"
-                            }
-                        },
-                        {
-                            updateSheetProperties: {
-                                properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } },
-                                fields: "gridProperties.frozenRowCount"
-                            }
-                        },
-                        // Ширина колонок
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }, 
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 160 }, fields: "pixelSize" } }, 
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, 
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 }, properties: { pixelSize: 150 }, fields: "pixelSize" } }, 
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 4, endIndex: 5 }, properties: { pixelSize: 120 }, fields: "pixelSize" } }, 
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 5, endIndex: 6 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, 
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 }, properties: { pixelSize: 350 }, fields: "pixelSize" } }, 
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 7, endIndex: 8 }, properties: { pixelSize: 80 }, fields: "pixelSize" } },  
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, 
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 9, endIndex: 10 }, properties: { pixelSize: 150 }, fields: "pixelSize" } },
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 10, endIndex: 11 }, properties: { pixelSize: 120 }, fields: "pixelSize" } },
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 11, endIndex: 12 }, properties: { pixelSize: 120 }, fields: "pixelSize" } } 
-                    ]
-                }
-            });
-
-            // 3. Шапка
+            // 2. Пишем заголовки
             const headers = [
-                "ID Заказа", "Оформлен", "User ID", 
+                "ID Заказа", "Время создания", "User ID", 
                 "Имя", "Телефон", "Адрес", 
                 "Товары", "Сумма", "Статус", 
                 "Комментарий", "Тип доставки", "Дата доставки"
@@ -118,7 +81,9 @@ async function ensureDailySheet(sheetName) {
             });
         }
     } catch (e) {
-        console.error("Ошибка при создании листа:", e);
+        // Важно: выводим ошибку в лог и "выбрасываем" её дальше, чтобы сервер знал о сбое
+        console.error("CRITICAL ERROR in ensureDailySheet:", e);
+        throw e;
     }
 }
 
@@ -132,15 +97,10 @@ function calculateOrderTotals(cart, products) {
             totalQty += item.qty;
         }
     });
-    
-    // --- ИЗМЕНЕНИЕ: Доставка всегда 0 ---
-    const deliveryCost = 0; 
-    
-    return { totalItemsAmount, deliveryCost, finalTotal: totalItemsAmount, totalQty };
+    return { totalItemsAmount, deliveryCost: 0, finalTotal: totalItemsAmount, totalQty };
 }
 
 // --- API ROUTES ---
-
 app.get('/api/get_products', async (req, res) => {
     try {
         const cached = cache.get("products");
@@ -233,7 +193,7 @@ app.post('/api/action', async (req, res) => {
                 }
             }
 
-            // Логика даты и ID
+            // --- ОПРЕДЕЛЕНИЕ ЛИСТА ---
             let datePartForId = "";
             let targetSheetName = "";
 
@@ -250,16 +210,20 @@ app.post('/api/action', async (req, res) => {
                 targetSheetName = `${d}.${m}.${y}`;
             }
 
+            // Создаем лист (Упрощенно)
             await ensureDailySheet(targetSheetName);
 
+            // Генерируем ID
             const existingRows = await getSheetData(`${targetSheetName}!A:A`);
             const count = existingRows ? existingRows.length : 0;
             const nextNum = String(count === 0 ? 1 : count).padStart(3, '0');
+            
             const typeLetter = (data.orderDetails.deliveryType === 'Самовывоз') ? 'С' : 'Д';
             const orderId = `${typeLetter}-${datePartForId}-${nextNum}`;
 
             const totals = calculateOrderTotals(cart, products);
             const nowTime = data.orderDetails.creationTime || new Date().toLocaleString("ru-RU");
+
             const orderData = [
                 orderId, nowTime, userId,
                 data.orderDetails.name, data.orderDetails.phone, data.orderDetails.address,
@@ -278,12 +242,11 @@ app.post('/api/action', async (req, res) => {
             res.json({ status: 'success', orderId, message: `Заказ ${orderId} принят!` });
         }
     } catch (e) {
-        console.error(e);
-        res.status(500).json({ status: 'error', message: e.message });
+        console.error("SERVER ERROR:", e);
+        res.status(500).json({ status: 'error', message: e.message || "Ошибка сервера" });
     }
 });
 
 app.get('/ping', (req, res) => res.send('pong'));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
