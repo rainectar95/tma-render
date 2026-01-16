@@ -537,5 +537,66 @@
         border-radius: 2rem;
 
     }
+/* --- Стили для полей ввода --- */
+.input-field {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 12px; /* Закругленные углы как в iOS */
+    font-size: 16px;
+    background-color: #f9f9f9;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.input-field:focus {
+    border-color: #ffa500; /* Оранжевая обводка при фокусе */
+    background-color: #fff;
+}
+
+/* Отступы */
+.mt-2 { margin-top: 10px; }
+
+/* --- Ряд для Адреса и Дома --- */
+.address-row {
+    display: flex;
+    gap: 10px; /* Расстояние между полями */
+}
+
+.input-wrapper.wide {
+    flex: 3; /* Улица занимает 75% места */
+}
+
+.input-wrapper.narrow {
+    flex: 1; /* Дом занимает 25% места */
+}
+
+/* --- Блок Самовывоза --- */
+.pickup-block {
+    background-color: #f0f0f0;
+    border-radius: 12px;
+    padding: 15px;
+    text-align: center;
+    border: 1px solid #e5e5e5;
+}
+
+.pickup-label {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 4px;
+}
+
+.pickup-address {
+    font-size: 17px;
+    font-weight: 700; /* Жирный шрифт */
+    color: #333;
+}
+
+/* Утилита для скрытия */
+.hidden {
+    display: none !important;
+}
+
 
 
