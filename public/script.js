@@ -4,14 +4,13 @@ tg.expand();
 // ==========================================
 // ⚙️ НАСТРОЙКИ
 // ==========================================
-const IS_LOCAL_MODE = false; // Ставим false для деплоя
+const IS_LOCAL_MODE = false; 
 const API_URL = '';
 const userId = tg.initDataUnsafe?.user?.id || 'test_user_777';
 
 // --- ЗАГЛУШКИ (для локального теста) ---
 const MOCK_PRODUCTS = [
     { id: '1', name: 'Лаваш Тонкий', price: 60, stock: 100, imageUrl: 'https://via.placeholder.com/150', description: 'Армянский лаваш, 10 шт' },
-    { id: '2', name: 'Сыр Чанах', price: 450, stock: 20, imageUrl: 'https://via.placeholder.com/150', description: 'Рассольный сыр, 500г' },
 ];
 
 let state = {
@@ -20,17 +19,12 @@ let state = {
     totals: { finalTotal: 0, deliveryCost: 0, totalQty: 0 }
 };
 
-// Хранилище таймеров для каждого товара
 let debounceTimers = {}; 
-// Хранилище накопленных изменений (например, { 'id_123': 5 })
 let pendingChanges = {};
-
-// Очередь запросов (чтобы не путать сервер частыми кликами)
-let syncQueue = Promise.resolve();
 
 // --- ИНИЦИАЛИЗАЦИЯ ---
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Настройка даты
+    // 1. Настройка календаря
     const dateInput = document.getElementById('custom-date');
     if (dateInput) {
         const today = new Date();
@@ -46,18 +40,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (nameField) nameField.value = [u.first_name, u.last_name].join(' ').trim();
     }
 
-    // 3. МГНОВЕННАЯ ЗАГРУЗКА ИЗ КЭША
-    // Сначала показываем то, что сохранили в прошлый раз
-    const cachedProducts = localStorage.getItem('shop_products');
-    if (cachedProducts) {
-        try {
-            state.products = JSON.parse(cachedProducts);
-            renderProducts(); // Сразу рисуем!
-            console.log('📦 Loaded from cache');
-        } catch (e) {}
-    }
-
-    // 4. Фоновая загрузка свежих данных
+    // 3. ЗАГРУЗКА (БЕЗ КЭША)
     await Promise.all([loadProducts(), loadCart()]);
 
     document.getElementById('loader').style.display = 'none';
@@ -65,14 +48,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // --- UI НАВИГАЦИЯ ---
-function toggleDateInput() {
-    const select = document.getElementById('date-select');
-    const container = document.getElementById('custom-date-container');
-    if (select && container) {
-        select.value === 'custom' ? container.classList.remove('hidden') : container.classList.add('hidden');
-    }
-}
-
 function showCatalog() {
     switchView('catalog');
 }
@@ -94,7 +69,7 @@ function switchView(viewName) {
         title.innerText = 'Каталог продукции';
         navCatalog.classList.add('active');
         navCart.classList.remove('active');
-        renderProducts(); // Перерисовка кнопок
+        renderProducts();
     } else {
         catalogView.classList.add('hidden');
         cartView.classList.remove('hidden');
@@ -106,7 +81,6 @@ function switchView(viewName) {
 }
 
 // --- ЛОГИКА ДАННЫХ ---
-
 async function loadProducts() {
     try {
         if (IS_LOCAL_MODE) {
@@ -116,8 +90,6 @@ async function loadProducts() {
             const data = await res.json();
             if (data.products) {
                 state.products = data.products;
-                // Сохраняем в память телефона для следующего раза
-                localStorage.setItem('shop_products', JSON.stringify(state.products));
             }
         }
         renderProducts();
@@ -136,7 +108,6 @@ async function loadCart() {
             const data = await res.json();
             if (data.cart) {
                 state.cart = data.cart;
-                // Пересчитываем итоги локально, чтобы убедиться, что цифры верные
                 calculateTotals(); 
                 updateCartUI();
             }
@@ -144,11 +115,9 @@ async function loadCart() {
     } catch (e) { console.error(e); }
 }
 
-// 🔥 ГЛАВНАЯ ФУНКЦИЯ УСКОРЕНИЯ 🔥
 async function changeQty(itemId, delta) {
     tg.HapticFeedback.selectionChanged();
 
-    // --- 1. ПРОВЕРКИ И ОГРАНИЧЕНИЯ (как и было) ---
     const product = state.products.find(p => p.id === itemId);
     const cartItem = state.cart.find(i => i.id === itemId);
     const currentQty = cartItem ? cartItem.qty : 0;
@@ -157,9 +126,8 @@ async function changeQty(itemId, delta) {
     if (product && product.stock > 0 && newQty > product.stock) {
         return tg.showAlert(`Доступно всего ${product.stock} шт.`);
     }
-    if (newQty < 0) return; // Нельзя меньше 0 (но 0 можно = удаление)
+    if (newQty < 0) return;
 
-    // --- 2. OPTIMISTIC UI (Меняем интерфейс мгновенно) ---
     if (cartItem) {
         cartItem.qty = newQty;
         if (cartItem.qty <= 0) {
@@ -169,41 +137,28 @@ async function changeQty(itemId, delta) {
         state.cart.push({ id: itemId, qty: newQty });
     }
 
-    calculateTotals(); // Пересчет денег
-    updateCartUI();    // Обновление шапки
+    calculateTotals();
+    updateCartUI();    
     
-    // Перерисовка нужного экрана
     if (!document.getElementById('cart-view').classList.contains('hidden')) {
         renderCart();
     } else {
         renderProducts();
     }
 
-    // --- 3. DEBOUNCING (Магия оптимизации) ---
     if (IS_LOCAL_MODE) return;
 
-    // Сбрасываем предыдущий таймер для этого товара, если он был
-    if (debounceTimers[itemId]) {
-        clearTimeout(debounceTimers[itemId]);
-    }
+    if (debounceTimers[itemId]) clearTimeout(debounceTimers[itemId]);
 
-    // Накапливаем изменения
-    // Если нажали +1, потом еще +1, в pendingChanges будет +2
     if (!pendingChanges[itemId]) pendingChanges[itemId] = 0;
     pendingChanges[itemId] += delta;
 
-    // Заводим новый таймер на 1 секунду
     debounceTimers[itemId] = setTimeout(async () => {
         const finalDelta = pendingChanges[itemId];
-        
-        // Если сумма изменений 0 (например, нажали +1, потом -1), то слать ничего не надо
         if (finalDelta === 0) {
             delete pendingChanges[itemId];
             return;
         }
-
-        console.log(`📡 Отправляем на сервер для ${itemId}: ${finalDelta} шт.`);
-        
         try {
             await fetch(`${API_URL}/api/action`, {
                 method: 'POST',
@@ -212,25 +167,22 @@ async function changeQty(itemId, delta) {
                     action: 'add_to_cart',
                     userId: userId,
                     itemId: itemId,
-                    quantity: finalDelta // Отправляем СУММУ кликов
+                    quantity: finalDelta
                 })
             });
-            // Успех - очищаем очередь для этого товара
             delete pendingChanges[itemId];
         } catch (e) {
             console.error("Ошибка синхронизации", e);
         }
-    }, 1000); // Ждем 1000 мс (1 секунду) после последнего клика
+    }, 1000);
 }
 
 async function removeItem(itemId) {
     const item = state.cart.find(i => i.id === itemId);
-    if (item) {
-        // Удаляем сразу всё количество
-        await changeQty(itemId, -item.qty);
-    }
+    if (item) await changeQty(itemId, -item.qty);
 }
 
+// 🔥 ФУНКЦИЯ ОФОРМЛЕНИЯ ЗАКАЗА 🔥
 async function submitOrder() {
     const name = document.getElementById('name').value;
     const phone = document.getElementById('phone').value;
@@ -238,21 +190,17 @@ async function submitOrder() {
     const deliveryType = document.getElementById('delivery-type').value;
     const comment = document.getElementById('comment').value;
 
-    // --- 1. ПОЛУЧЕНИЕ ДАТЫ ---
-    const rawDate = document.getElementById('custom-date').value; // Например: "2026-01-30"
+    const rawDate = document.getElementById('custom-date').value;
     
-    // Проверка: выбрана ли дата?
+    // 1. Проверка даты
     if (!rawDate && !IS_LOCAL_MODE) {
         return tg.showAlert("Выберите дату доставки!");
     }
 
-    // Красивая дата для отображения в таблице
     const dateVal = rawDate ? formatSmartDate(rawDate) : '';
-    
-    // --- 2. ВРЕМЯ НА УСТРОЙСТВЕ ---
+    // 2. Время устройства
     const deviceTime = new Date().toLocaleString('ru-RU');
 
-    // Локальный режим
     if (IS_LOCAL_MODE) {
         tg.showAlert(`🔶 [LOCAL] Заказ оформлен!\n📅 Дата: ${dateVal}`);
         state.cart = [];
@@ -276,29 +224,30 @@ async function submitOrder() {
                 userId: userId,
                 orderDetails: {
                     name, phone, address, deliveryType,
-                    deliveryDate: dateVal, // Текст: "30 Января"
-                    deliveryRaw: rawDate,  // ВАЖНО: Сырая дата "2026-01-30"
-                    creationTime: deviceTime, // ВАЖНО: Время с телефона
+                    deliveryDate: dateVal,
+                    deliveryRaw: rawDate, // Сырая дата
+                    creationTime: deviceTime, // Время устройства
                     comment
                 }
             })
         });
+
         const data = await res.json();
+        
         if (data.status === 'success') {
             tg.showAlert(data.message);
             tg.close();
         } else {
-            tg.showAlert(data.message);
+            tg.showAlert("Ошибка: " + data.message);
         }
     } catch (e) {
-        tg.showAlert("Ошибка при оформлении заказа");
+        tg.showAlert("Сбой соединения (Network Error)");
         console.error(e);
     } finally {
         tg.MainButton.hideProgress();
     }
 }
-// --- ЛОКАЛЬНЫЙ РАСЧЕТ ИТОГОВ ---
-// Эта функция теперь работает ВСЕГДА (и в local, и в production)
+
 function calculateTotals() {
     let totalItemsAmount = 0;
     let totalQty = 0;
@@ -311,26 +260,23 @@ function calculateTotals() {
         }
     });
 
-    // --- ИЗМЕНЕНИЕ: Доставка = 0 ---
+    // Доставка = 0
     const deliveryCost = 0; 
-    // -------------------------------
 
     state.totals = {
         totalItemsAmount,
         deliveryCost,
-        finalTotal: totalItemsAmount + deliveryCost, // Всегда равно сумме товаров
+        finalTotal: totalItemsAmount + deliveryCost,
         totalQty
     };
 }
 
 // --- ОТРИСОВКА ---
-
 function updateCartUI() {
     const delCostElem = document.getElementById('delivery-cost');
     const totalElem = document.getElementById('total-price');
     const badge = document.getElementById('cart-badge');
 
-    // Безопасное обновление (если элементов нет на странице)
     if (delCostElem) delCostElem.innerText = `${state.totals.deliveryCost} ₽`;
     if (totalElem) totalElem.innerText = `${state.totals.finalTotal} ₽`;
     
@@ -373,7 +319,7 @@ function renderProducts() {
         }
 
         card.innerHTML = `
-            <div class="img-frame"><img src="${imgUrl}" class="product-img" alt="${p.name}"></div>            
+            <div class="img-frame"><img src="${imgUrl}" class="product-img" loading="lazy" alt="${p.name}"></div>            
             <div class="product-price">${p.price} ₽</div>
             <div class="product-name">${p.name}</div>
             <div class="product-details">${details}</div>
@@ -400,7 +346,7 @@ function renderCart() {
         return `
         <div class="cart-block">
             <div class="cart-item">
-                <div class="card-img-container"><img src="${imgUrl}" class="cart-item-img" alt="${product.name}"></div>
+                <div class="card-img-container"><img src="${imgUrl}" class="cart-item-img" loading="lazy" alt="${product.name}"></div>
                 <div class="cart-item-info">
                     <div class="card-item-block">
                         <div class="cart-item-name">${product.name}</div>
@@ -421,7 +367,6 @@ function renderCart() {
     }).join('');
 }
 
-// --- ФОРМАТИРОВАНИЕ ДАТ ---
 function updatePrettyDate(dateInput) {
     const displayInput = document.getElementById('date-display');
     const rawDate = dateInput.value;
@@ -439,14 +384,12 @@ function formatSmartDate(isoDateString) {
     const dayNum = dateObj.getDate();
     const monthName = monthsGenitive[dateObj.getMonth()];
     
-    // Возвращаем просто: "Пт, 20 Января"
     return `${dayName}, ${dayNum} ${monthName}`;
 }
 
 // --- EXPORT ---
 window.updatePrettyDate = updatePrettyDate;
 window.removeItem = removeItem;
-window.toggleDateInput = toggleDateInput;
 window.changeQty = changeQty;
 window.submitOrder = submitOrder;
 window.showCatalog = showCatalog;
