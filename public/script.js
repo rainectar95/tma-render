@@ -308,14 +308,14 @@ function calculateTotals() {
         }
     });
 
-    const FREE_THRESHOLD = 5000;
-    const BASE_COST = 300;
-    const deliveryCost = (totalItemsAmount >= FREE_THRESHOLD || totalItemsAmount === 0) ? 0 : BASE_COST;
+    // --- ИЗМЕНЕНИЕ: Доставка = 0 ---
+    const deliveryCost = 0; 
+    // -------------------------------
 
     state.totals = {
         totalItemsAmount,
         deliveryCost,
-        finalTotal: totalItemsAmount + deliveryCost,
+        finalTotal: totalItemsAmount + deliveryCost, // Всегда равно сумме товаров
         totalQty
     };
 }
@@ -448,6 +448,7 @@ window.changeQty = changeQty;
 window.submitOrder = submitOrder;
 window.showCatalog = showCatalog;
 window.showCart = showCart;
+
 
 
 
