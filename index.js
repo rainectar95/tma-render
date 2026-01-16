@@ -6,7 +6,7 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
-const cache = new NodeCache({ stdTTL: 600 });
+const cache = new NodeCache({ stdTTL: 600 }); // Кэш памяти сервера (не телефона)
 
 app.use(cors());
 app.use(express.json());
@@ -49,22 +49,66 @@ async function appendRow(range, values) {
     });
 }
 
-// УПРОЩЕННАЯ ФУНКЦИЯ СОЗДАНИЯ ЛИСТА (Без сложного форматирования)
+// 🔥 СОЗДАНИЕ КРАСИВОГО ЛИСТА (С ФОРМАТИРОВАНИЕМ) 🔥
 async function ensureDailySheet(sheetName) {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
         const sheetExists = meta.data.sheets.some(s => s.properties.title === sheetName);
 
         if (!sheetExists) {
-            console.log(`📝 Создаем новый лист: ${sheetName}`);
+            console.log(`🎨 Создаем и красим лист: ${sheetName}`);
             
-            // 1. Просто создаем лист
-            await sheets.spreadsheets.batchUpdate({
+            // 1. Создаем лист
+            const createRes = await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] }
             });
+            
+            // Получаем ID нового листа (нужен для настройки колонок)
+            const newSheetId = createRes.data.replies[0].addSheet.properties.sheetId;
 
-            // 2. Пишем заголовки
+            // 2. Настраиваем красоту (отдельный запрос, чтобы не сбойнуло создание)
+            try {
+                await sheets.spreadsheets.batchUpdate({
+                    spreadsheetId: SPREADSHEET_ID,
+                    resource: {
+                        requests: [
+                            // Жирная шапка
+                            {
+                                repeatCell: {
+                                    range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 },
+                                    cell: { userEnteredFormat: { textFormat: { bold: true } } },
+                                    fields: "userEnteredFormat.textFormat.bold"
+                                }
+                            },
+                            // Закрепить 1-ю строку
+                            {
+                                updateSheetProperties: {
+                                    properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } },
+                                    fields: "gridProperties.frozenRowCount"
+                                }
+                            },
+                            // Ширина колонок (в пикселях)
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, // ID
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 140 }, fields: "pixelSize" } }, // Время
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 90 }, fields: "pixelSize" } },  // UID
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 }, properties: { pixelSize: 150 }, fields: "pixelSize" } }, // Имя
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 4, endIndex: 5 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }, // Тел
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 5, endIndex: 6 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, // Адрес
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 }, properties: { pixelSize: 300 }, fields: "pixelSize" } }, // Товары (Широкая)
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 7, endIndex: 8 }, properties: { pixelSize: 80 }, fields: "pixelSize" } },  // Сумма
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, properties: { pixelSize: 90 }, fields: "pixelSize" } },  // Статус
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 9, endIndex: 10 }, properties: { pixelSize: 150 }, fields: "pixelSize" } }, // Коммент
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 10, endIndex: 11 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }, // Тип
+                            { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 11, endIndex: 12 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }  // Дата
+                        ]
+                    }
+                });
+            } catch (styleError) {
+                console.error("Ошибка стиля (не критично):", styleError.message);
+            }
+
+            // 3. Пишем заголовки
             const headers = [
                 "ID Заказа", "Время создания", "User ID", 
                 "Имя", "Телефон", "Адрес", 
@@ -80,8 +124,7 @@ async function ensureDailySheet(sheetName) {
             });
         }
     } catch (e) {
-        console.error("Ошибка при создании листа:", e);
-        // Не выбрасываем ошибку, чтобы попробовать записать заказ даже если создание сбойнуло (редкий кейс)
+        console.error("Критическая ошибка создания листа:", e.message);
     }
 }
 
@@ -182,7 +225,7 @@ app.post('/api/action', async (req, res) => {
             let totalSum = 0;
             for (const item of cart) {
                 const p = products.find(x => x.id === item.id);
-                if (!p) throw new Error("Товар не найден");
+                if (!p) throw new Error("Товар не найден (ID " + item.id + ")");
                 if (p.stock > 0 && item.qty > p.stock) throw new Error(`Мало товара: ${p.name}`);
                 itemsList.push(`${p.name} x ${item.qty}`);
                 totalSum += p.price * item.qty;
@@ -191,17 +234,16 @@ app.post('/api/action', async (req, res) => {
                 }
             }
 
-            // --- ОПРЕДЕЛЕНИЕ ЛИСТА (ПО ДАТЕ) ---
+            // --- ДАТА И ЛИСТ ---
             let datePartForId = "";
             let targetSheetName = "";
 
-            if (data.orderDetails.deliveryRaw) {
-                // Если пришла дата "2026-01-30"
-                const parts = data.orderDetails.deliveryRaw.split('-'); 
+            if (data.orderDetails.deliveryRaw && data.orderDetails.deliveryRaw.includes('-')) {
+                const parts = data.orderDetails.deliveryRaw.split('-'); // "2026-01-30"
                 datePartForId = `${parts[2]}.${parts[1]}`;
                 targetSheetName = `${parts[2]}.${parts[1]}.${parts[0]}`;
             } else {
-                // Если даты нет - берем сегодня
+                console.log("⚠️ Используем сегодняшнюю дату (клиент не прислал выбор)");
                 const now = new Date();
                 const d = String(now.getDate()).padStart(2, '0');
                 const m = String(now.getMonth() + 1).padStart(2, '0');
@@ -210,20 +252,17 @@ app.post('/api/action', async (req, res) => {
                 targetSheetName = `${d}.${m}.${y}`;
             }
 
-            // Создаем лист, если его нет
+            // Создаем и красим лист
             await ensureDailySheet(targetSheetName);
 
             // Генерируем ID
             const existingRows = await getSheetData(`${targetSheetName}!A:A`);
             const count = existingRows ? existingRows.length : 0;
             const nextNum = String(count === 0 ? 1 : count).padStart(3, '0');
-            
             const typeLetter = (data.orderDetails.deliveryType === 'Самовывоз') ? 'С' : 'Д';
             const orderId = `${typeLetter}-${datePartForId}-${nextNum}`;
 
             const totals = calculateOrderTotals(cart, products);
-            
-            // Берем время с устройства клиента, если оно есть
             const nowTime = data.orderDetails.creationTime || new Date().toLocaleString("ru-RU");
 
             const orderData = [
@@ -241,11 +280,11 @@ app.post('/api/action', async (req, res) => {
             await updateRow(`${SHEET_CARTS}!B${rowIndex}`, ["[]"]);
             cache.del("products");
 
-            res.json({ status: 'success', orderId, message: `Заказ ${orderId} принят!` });
+            res.json({ status: 'success', orderId, message: `Заказ ${orderId} оформлен!` });
         }
     } catch (e) {
         console.error("SERVER ERROR:", e);
-        res.status(500).json({ status: 'error', message: e.message || "Ошибка сервера" });
+        res.status(500).json({ status: 'error', message: "Ошибка сервера: " + e.message });
     }
 });
 
