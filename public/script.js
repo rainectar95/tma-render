@@ -24,7 +24,6 @@ let pendingChanges = {};
 
 // --- ИНИЦИАЛИЗАЦИЯ ---
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Настройка календаря (минимум завтра)
     const dateInput = document.getElementById('custom-date');
     if (dateInput) {
         const today = new Date();
@@ -33,14 +32,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         dateInput.min = tomorrow.toISOString().split('T')[0];
     }
 
-    // 2. Имя пользователя
     if (tg.initDataUnsafe?.user) {
         const u = tg.initDataUnsafe.user;
         const nameField = document.getElementById('name');
         if (nameField) nameField.value = [u.first_name, u.last_name].join(' ').trim();
     }
 
-    // 3. 📞 ПОДКЛЮЧЕНИЕ МАСКИ ТЕЛЕФОНА 📞
+    // --- МАСКА ТЕЛЕФОНА ---
     const phoneInput = document.getElementById('phone');
     if (phoneInput) {
         phoneInput.addEventListener('input', onPhoneInput);
@@ -48,14 +46,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         phoneInput.addEventListener('paste', onPhonePaste);
     }
 
-    // 4. ЗАГРУЗКА ДАННЫХ (БЕЗ КЭША)
     await Promise.all([loadProducts(), loadCart()]);
 
     document.getElementById('loader').style.display = 'none';
     document.getElementById('app').style.display = 'block';
 });
 
-// --- ЛОГИКА МАСКИ ТЕЛЕФОНА ---
+// --- ЛОГИКА МАСКИ ТЕЛЕФОНА (+7 (XXX) XXX XX XX) ---
 function getInputNumbersValue(input) {
     return input.value.replace(/\D/g, '');
 }
@@ -93,7 +90,7 @@ function onPhoneInput(e) {
     if (["7", "8", "9"].indexOf(inputNumbersValue[0]) > -1) {
         if (inputNumbersValue[0] == "9") inputNumbersValue = "7" + inputNumbersValue;
         
-        let firstSymbols = "+7"; // Всегда начинаем с +7
+        let firstSymbols = "+7"; 
         formattedInputValue = input.value = firstSymbols + " ";
         
         if (inputNumbersValue.length > 1) {
@@ -115,7 +112,6 @@ function onPhoneInput(e) {
 }
 
 function onPhoneKeyDown(e) {
-    // Удаляем символ, если нажали Backspace
     const inputValue = e.target.value.replace(/\D/g, '');
     if (e.keyCode == 8 && inputValue.length == 1) {
         e.target.value = "";
@@ -181,7 +177,7 @@ async function loadCart() {
     } catch (e) { console.error(e); }
 }
 
-// --- КОРЗИНА И ИНТЕРФЕЙС ---
+// --- КОРЗИНА ---
 async function changeQty(itemId, delta) {
     tg.HapticFeedback.selectionChanged();
 
@@ -259,14 +255,13 @@ async function submitOrder() {
 
     const rawDate = document.getElementById('custom-date').value;
     
-    // Проверка даты
     if (!rawDate && !IS_LOCAL_MODE) {
         return tg.showAlert("Выберите дату доставки!");
     }
 
     const dateVal = rawDate ? formatSmartDate(rawDate) : '';
-    const deviceTime = new Date().toLocaleString('ru-RU');
-
+    
+    // В локальном режиме
     if (IS_LOCAL_MODE) {
         tg.showAlert(`🔶 [LOCAL] Заказ оформлен!\n📅 Дата: ${dateVal}`);
         state.cart = [];
@@ -292,7 +287,6 @@ async function submitOrder() {
                     name, phone, address, deliveryType,
                     deliveryDate: dateVal,
                     deliveryRaw: rawDate, 
-                    creationTime: deviceTime, 
                     comment
                 }
             })
