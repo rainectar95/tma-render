@@ -33,7 +33,6 @@ async function getSheetData(range) {
         const response = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range });
         return response.data.values || [];
     } catch (e) {
-        console.error(`Ошибка чтения ${range}:`, e.message);
         return [];
     }
 }
@@ -50,7 +49,7 @@ async function appendRow(range, values) {
     });
 }
 
-// УПРОЩЕННАЯ ФУНКЦИЯ СОЗДАНИЯ ЛИСТА
+// УПРОЩЕННАЯ ФУНКЦИЯ СОЗДАНИЯ ЛИСТА (Без сложного форматирования)
 async function ensureDailySheet(sheetName) {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -59,7 +58,7 @@ async function ensureDailySheet(sheetName) {
         if (!sheetExists) {
             console.log(`📝 Создаем новый лист: ${sheetName}`);
             
-            // 1. Просто создаем лист (без сложного форматирования)
+            // 1. Просто создаем лист
             await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] }
@@ -81,9 +80,8 @@ async function ensureDailySheet(sheetName) {
             });
         }
     } catch (e) {
-        // Важно: выводим ошибку в лог и "выбрасываем" её дальше, чтобы сервер знал о сбое
-        console.error("CRITICAL ERROR in ensureDailySheet:", e);
-        throw e;
+        console.error("Ошибка при создании листа:", e);
+        // Не выбрасываем ошибку, чтобы попробовать записать заказ даже если создание сбойнуло (редкий кейс)
     }
 }
 
@@ -193,15 +191,17 @@ app.post('/api/action', async (req, res) => {
                 }
             }
 
-            // --- ОПРЕДЕЛЕНИЕ ЛИСТА ---
+            // --- ОПРЕДЕЛЕНИЕ ЛИСТА (ПО ДАТЕ) ---
             let datePartForId = "";
             let targetSheetName = "";
 
             if (data.orderDetails.deliveryRaw) {
-                const parts = data.orderDetails.deliveryRaw.split('-'); // "2026-01-30"
+                // Если пришла дата "2026-01-30"
+                const parts = data.orderDetails.deliveryRaw.split('-'); 
                 datePartForId = `${parts[2]}.${parts[1]}`;
                 targetSheetName = `${parts[2]}.${parts[1]}.${parts[0]}`;
             } else {
+                // Если даты нет - берем сегодня
                 const now = new Date();
                 const d = String(now.getDate()).padStart(2, '0');
                 const m = String(now.getMonth() + 1).padStart(2, '0');
@@ -210,7 +210,7 @@ app.post('/api/action', async (req, res) => {
                 targetSheetName = `${d}.${m}.${y}`;
             }
 
-            // Создаем лист (Упрощенно)
+            // Создаем лист, если его нет
             await ensureDailySheet(targetSheetName);
 
             // Генерируем ID
@@ -222,6 +222,8 @@ app.post('/api/action', async (req, res) => {
             const orderId = `${typeLetter}-${datePartForId}-${nextNum}`;
 
             const totals = calculateOrderTotals(cart, products);
+            
+            // Берем время с устройства клиента, если оно есть
             const nowTime = data.orderDetails.creationTime || new Date().toLocaleString("ru-RU");
 
             const orderData = [
