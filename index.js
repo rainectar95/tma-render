@@ -12,13 +12,13 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- КОНФИГУРАЦИЯ ---
+// --- CONFIGURATION ---
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_PRODUCTS = "Товары";
 const SHEET_CARTS = "Корзины";
-const SHEET_CLIENTS = "Клиенты"; // Новая вкладка для базы
+const SHEET_CLIENTS = "Клиенты"; // New Sheet for CRM
 
-// --- АВТОРИЗАЦИЯ ---
+// --- GOOGLE AUTH ---
 const auth = new google.auth.GoogleAuth({
     credentials: {
         client_email: process.env.GOOGLE_CLIENT_EMAIL,
@@ -28,7 +28,7 @@ const auth = new google.auth.GoogleAuth({
 });
 const sheets = google.sheets({ version: 'v4', auth });
 
-// --- ХЕЛПЕРЫ ---
+// --- HELPERS ---
 async function getSheetData(range) {
     try {
         const response = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range });
@@ -48,7 +48,7 @@ async function appendRow(range, values) {
     });
 }
 
-// --- СОРТИРОВКА ЛИСТОВ ---
+// --- SHEET SORTING (Chronological) ---
 async function sortSheetsByDate() {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -58,6 +58,7 @@ async function sortSheetsByDate() {
 
         allSheets.forEach(sheet => {
             const title = sheet.properties.title;
+            // Regex to check for DD.MM.YYYY
             if (/^\d{2}\.\d{2}\.\d{4}$/.test(title)) {
                 dateSheets.push(sheet);
             } else {
@@ -87,7 +88,7 @@ async function sortSheetsByDate() {
         if (requests.length > 0) {
             await sheets.spreadsheets.batchUpdate({ spreadsheetId: SPREADSHEET_ID, resource: { requests } });
         }
-    } catch (e) { console.error("Ошибка сортировки:", e.message); }
+    } catch (e) { console.error("Sort Error:", e.message); }
 }
 
 function parseDate(str) {
@@ -95,7 +96,7 @@ function parseDate(str) {
     return new Date(parts[2], parts[1] - 1, parts[0]);
 }
 
-// --- СВОДКА ДНЯ ---
+// --- DAILY SUMMARY (Right side of daily sheet) ---
 async function updateDailySummary(sheetName) {
     try {
         const rows = await getSheetData(`${sheetName}!G2:G`);
@@ -115,28 +116,31 @@ async function updateDailySummary(sheetName) {
         });
         const summaryData = [['📦 ИТОГО НА ДЕНЬ', 'КОЛ-ВО']];
         for (const [name, qty] of Object.entries(totals)) summaryData.push([name, qty]);
+        
+        // Clear previous summary
         await sheets.spreadsheets.values.clear({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!N1:O100` });
+        // Write new summary
         await sheets.spreadsheets.values.update({
             spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!N1`, valueInputOption: 'USER_ENTERED', resource: { values: summaryData }
         });
-    } catch (e) { console.error("Ошибка сводки:", e); }
+    } catch (e) { console.error("Summary Error:", e); }
 }
 
-// --- УПРАВЛЕНИЕ ЛИСТАМИ (ДНИ) ---
+// --- DAILY SHEET MANAGEMENT ---
 async function ensureDailySheet(sheetName) {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
         const sheetExists = meta.data.sheets.some(s => s.properties.title === sheetName);
 
         if (!sheetExists) {
-            console.log(`🎨 Создаем лист: ${sheetName}`);
+            console.log(`🎨 Creating daily sheet: ${sheetName}`);
             const createRes = await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] }
             });
             const newSheetId = createRes.data.replies[0].addSheet.properties.sheetId;
 
-            // Настройка стилей дня
+            // Daily Sheet Styling
             await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: {
@@ -147,7 +151,7 @@ async function ensureDailySheet(sheetName) {
                         { repeatCell: { range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 6, endColumnIndex: 7 }, cell: { userEnteredFormat: { horizontalAlignment: "LEFT", verticalAlignment: "MIDDLE" } }, fields: "userEnteredFormat" } },
                         { repeatCell: { range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 9, endColumnIndex: 10 }, cell: { userEnteredFormat: { wrapStrategy: "WRAP", horizontalAlignment: "CENTER", verticalAlignment: "MIDDLE" } }, fields: "userEnteredFormat" } },
                         
-                        // Ширина колонок
+                        // Column Widths
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, 
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 130 }, fields: "pixelSize" } }, 
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 120 }, fields: "pixelSize" } }, 
@@ -159,6 +163,8 @@ async function ensureDailySheet(sheetName) {
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, properties: { pixelSize: 80 }, fields: "pixelSize" } },  
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 9, endIndex: 10 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, 
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 10, endIndex: 11 }, properties: { hiddenByUser: true }, fields: "hiddenByUser" } },
+                        
+                        // Summary Columns Width
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 13, endIndex: 14 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, 
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 14, endIndex: 15 }, properties: { pixelSize: 80 }, fields: "pixelSize" } }   
                     ]
@@ -168,17 +174,17 @@ async function ensureDailySheet(sheetName) {
             const headers = ["Заказ", "Оформлен", "Имя", "Телефон", "Адрес", "Тип доставки", "Товары", "Сумма", "Статус", "Комментарий", "User ID"];
             await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headers] } });
         }
-    } catch (e) { console.error("Ошибка листа дня:", e.message); }
+    } catch (e) { console.error("Daily Sheet Error:", e.message); }
 }
 
-// 🔥 УПРАВЛЕНИЕ ЛИСТОМ "КЛИЕНТЫ" 🔥
+// 🔥 CLIENTS DATABASE MANAGEMENT 🔥
 async function ensureClientsSheet() {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
         const sheetExists = meta.data.sheets.some(s => s.properties.title === SHEET_CLIENTS);
 
         if (!sheetExists) {
-            console.log(`👥 Создаем базу клиентов`);
+            console.log(`👥 Creating Clients Database`);
             const createRes = await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: { requests: [{ addSheet: { properties: { title: SHEET_CLIENTS } } }] }
@@ -189,20 +195,20 @@ async function ensureClientsSheet() {
                 spreadsheetId: SPREADSHEET_ID,
                 resource: {
                     requests: [
-                        { // Шапка: Жирный + Центр
+                        { // Header: Bold + Center
                             repeatCell: {
                                 range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 },
                                 cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: "CENTER" } },
                                 fields: "userEnteredFormat"
                             }
                         },
-                        { // Закрепить
+                        { // Freeze Header
                             updateSheetProperties: {
                                 properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } },
                                 fields: "gridProperties.frozenRowCount"
                             }
                         },
-                        // Ширина колонок: №(50), Имя(150), Адрес(250), Телефон(150), Заказ(300)
+                        // Column Widths: No(50), Name(150), Address(250), Phone(150), Order(300)
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 50 }, fields: "pixelSize" } },
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 150 }, fields: "pixelSize" } },
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 250 }, fields: "pixelSize" } },
@@ -212,32 +218,30 @@ async function ensureClientsSheet() {
                 }
             });
 
-            // Заголовки (как на скрине)
+            // Headers
             const headers = ["№", "Имя", "Адрес", "Номер телефона", "Последний заказ"];
             await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_CLIENTS}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headers] } });
         }
-    } catch (e) { console.error("Ошибка базы клиентов:", e.message); }
+    } catch (e) { console.error("Client DB Error:", e.message); }
 }
 
-// 🔥 ОБНОВЛЕНИЕ БАЗЫ КЛИЕНТОВ 🔥
+// 🔥 UPDATE CUSTOMER DATABASE 🔥
 async function updateCustomerDatabase(customerData) {
     try {
         await ensureClientsSheet();
         
-        // Читаем всю базу клиентов
+        // Read the database
         const rows = await getSheetData(`${SHEET_CLIENTS}!A2:E`);
-        const phoneToFind = customerData.phone; // Чистый телефон ("+7999...")
+        const phoneToFind = customerData.phone; // Raw phone like "+7999..."
 
         let foundIndex = -1;
 
-        // Ищем клиента по телефону
-        // Колонка D (index 3) - это Телефон
+        // Search by Phone (Column D, index 3)
         for (let i = 0; i < rows.length; i++) {
-            // В ячейке может быть формула ="..." или просто текст. Сравниваем содержимое.
             const cellVal = rows[i][3] || "";
-            // Если в базе "+7 (999)..." а у нас "+7999...", приводим к общему виду для сравнения (удаляем пробелы и скобки)
-            const dbPhoneClean = cellVal.replace(/\D/g, '');
-            const inputPhoneClean = phoneToFind.replace(/\D/g, '');
+            // Clean both DB value and Input value to digits only for comparison
+            const dbPhoneClean = cellVal.toString().replace(/\D/g, '');
+            const inputPhoneClean = phoneToFind.toString().replace(/\D/g, '');
 
             if (dbPhoneClean === inputPhoneClean && dbPhoneClean.length > 5) {
                 foundIndex = i;
@@ -245,40 +249,37 @@ async function updateCustomerDatabase(customerData) {
             }
         }
 
-        const formattedPhone = `="${customerData.phone}"`; // Формула для сохранения
+        const formattedPhone = `="${customerData.phone}"`; // Store as formula
         
         if (foundIndex !== -1) {
-            // --- КЛИЕНТ НАЙДЕН -> ОБНОВЛЯЕМ ---
-            // Обновляем: Имя (B), Адрес (C), Заказ (E)
-            // Строка в таблице = foundIndex + 2 (т.к. начинали с A2)
+            // --- UPDATE EXISTING CLIENT ---
+            // Update: Name(B), Address(C), Phone(D), Order(E)
+            // Row index = foundIndex + 2 (because of A2 start)
             const sheetRow = foundIndex + 2;
             
-            // Если имя изменилось - обновим. Если адрес изменился - обновим.
-            // Но самое главное - обновить ПОСЛЕДНИЙ ЗАКАЗ.
-            
-            // Пишем: Имя, Адрес, Телефон (на всякий случай), Заказ
+            // Overwrite details to ensure latest address/name/order
             const updateRange = `${SHEET_CLIENTS}!B${sheetRow}:E${sheetRow}`;
             await updateRow(updateRange, [customerData.name, customerData.address, formattedPhone, customerData.items]);
-            console.log(`🔄 Клиент обновлен: ${customerData.name}`);
+            console.log(`🔄 Client updated: ${customerData.name}`);
 
         } else {
-            // --- НОВЫЙ КЛИЕНТ -> СОЗДАЕМ ---
-            // Номер по порядку = количество существующих строк + 1
+            // --- CREATE NEW CLIENT ---
+            // ID = existing rows + 1
             const nextId = rows.length + 1;
             
             const newRow = [
-                nextId,              // №
-                customerData.name,   // Имя
-                customerData.address,// Адрес
-                formattedPhone,      // Телефон
-                customerData.items   // Заказ
+                nextId,              // No
+                customerData.name,   // Name
+                customerData.address,// Address
+                formattedPhone,      // Phone
+                customerData.items   // Order
             ];
             await appendRow(SHEET_CLIENTS, newRow);
-            console.log(`✅ Новый клиент добавлен: ${customerData.name}`);
+            console.log(`✅ New client added: ${customerData.name}`);
         }
 
     } catch (e) {
-        console.error("Ошибка обновления клиентов:", e);
+        console.error("Client Update Logic Error:", e);
     }
 }
 
@@ -367,9 +368,9 @@ app.post('/api/action', async (req, res) => {
         else if (action === 'place_order') {
             const cartRows = await getSheetData(SHEET_CARTS);
             const userRow = cartRows.find(r => r[0] == userId);
-            if (!userRow) throw new Error("Корзина пуста");
+            if (!userRow) throw new Error("Cart empty");
             const cart = JSON.parse(userRow[1]);
-            if (!cart.length) throw new Error("Корзина пуста");
+            if (!cart.length) throw new Error("Cart empty");
 
             const prodRows = await getSheetData(`${SHEET_PRODUCTS}!A2:I`);
             const products = prodRows.map((row, i) => ({
@@ -380,8 +381,8 @@ app.post('/api/action', async (req, res) => {
             let totalSum = 0;
             for (const item of cart) {
                 const p = products.find(x => x.id === item.id);
-                if (!p) throw new Error("Товар не найден");
-                if (p.stock > 0 && item.qty > p.stock) throw new Error(`Мало товара: ${p.name}`);
+                if (!p) throw new Error("Product not found");
+                if (p.stock > 0 && item.qty > p.stock) throw new Error(`Stock low: ${p.name}`);
                 itemsList.push(`${p.name} x ${item.qty}`);
                 totalSum += p.price * item.qty;
                 if (p.stock > 0) {
@@ -389,7 +390,7 @@ app.post('/api/action', async (req, res) => {
                 }
             }
 
-            // --- ДАТА И ЛИСТ ---
+            // --- DATE & SHEET LOGIC ---
             let datePartForId = "";
             let targetSheetName = "";
 
@@ -416,11 +417,7 @@ app.post('/api/action', async (req, res) => {
 
             const totals = calculateOrderTotals(cart, products);
             
-            // Формат даты без секунд
-            const dateOptions = { 
-                year: 'numeric', month: 'numeric', day: 'numeric', 
-                hour: '2-digit', minute: '2-digit' 
-            };
+            const dateOptions = { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' };
             const nowTime = new Date().toLocaleString("ru-RU", dateOptions);
             const formattedPhone = `="${data.orderDetails.phone}"`;
             const productsString = itemsList.join('\n');
@@ -439,16 +436,16 @@ app.post('/api/action', async (req, res) => {
                 userId 
             ];
 
-            // 1. Записываем заказ в таблицу дня
+            // 1. Write order to daily sheet
             await appendRow(targetSheetName, orderData);
             
-            // 2. Обновляем сводку дня (справа)
+            // 2. Update daily summary (right side)
             await updateDailySummary(targetSheetName);
             
-            // 3. Сортируем листы
+            // 3. Sort sheets
             await sortSheetsByDate();
 
-            // 4. 🔥 ОБНОВЛЯЕМ БАЗУ КЛИЕНТОВ 🔥
+            // 4. 🔥 UPDATE CLIENT DATABASE 🔥
             await updateCustomerDatabase({
                 name: data.orderDetails.name,
                 phone: data.orderDetails.phone,
@@ -456,7 +453,7 @@ app.post('/api/action', async (req, res) => {
                 items: productsString
             });
 
-            // Очистка корзины
+            // Clear cart
             const rowIndex = cartRows.findIndex(r => r[0] == userId) + 1;
             await updateRow(`${SHEET_CARTS}!B${rowIndex}`, ["[]"]);
             cache.del("products");
@@ -465,7 +462,7 @@ app.post('/api/action', async (req, res) => {
         }
     } catch (e) {
         console.error("SERVER ERROR:", e);
-        res.status(500).json({ status: 'error', message: "Ошибка сервера: " + e.message });
+        res.status(500).json({ status: 'error', message: "Error: " + e.message });
     }
 });
 
