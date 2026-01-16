@@ -238,15 +238,16 @@ async function submitOrder() {
     const deliveryType = document.getElementById('delivery-type').value;
     const comment = document.getElementById('comment').value;
 
-    let dateVal = document.getElementById('date-select').value;
-    if (dateVal === 'custom') {
-        const rawDate = document.getElementById('custom-date').value;
-        if (!rawDate && !IS_LOCAL_MODE) return tg.showAlert("Выберите дату");
-        if (rawDate) dateVal = formatSmartDate(rawDate);
+    // --- ЛОГИКА ДАТЫ (Берем напрямую из календаря) ---
+    const rawDate = document.getElementById('custom-date').value;
+    let dateVal = rawDate ? formatSmartDate(rawDate) : '';
+
+    if (!dateVal && !IS_LOCAL_MODE) {
+        return tg.showAlert("Выберите дату доставки");
     }
 
     if (IS_LOCAL_MODE) {
-        tg.showAlert(`🔶 [LOCAL] Заказ оформлен!`);
+        tg.showAlert(`🔶 [LOCAL] Заказ оформлен!\n📅 Дата: ${dateVal}`);
         state.cart = [];
         calculateTotals();
         updateCartUI();
@@ -423,8 +424,9 @@ function formatSmartDate(isoDateString) {
     const dayName = weekDays[dateObj.getDay()];
     const dayNum = dateObj.getDate();
     const monthName = monthsGenitive[dateObj.getMonth()];
-    const baseString = `${dayName}, ${dayNum} ${monthName}`;
-    return baseString;
+    
+    // Возвращаем просто: "Пт, 20 Января"
+    return `${dayName}, ${dayNum} ${monthName}`;
 }
 
 // --- EXPORT ---
@@ -435,4 +437,5 @@ window.changeQty = changeQty;
 window.submitOrder = submitOrder;
 window.showCatalog = showCatalog;
 window.showCart = showCart;
+
 
