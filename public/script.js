@@ -6,7 +6,7 @@ tg.expand();
 // ==========================================
 // Поставьте true, чтобы верстать локально без сервера.
 // Поставьте false перед тем, как заливать на GitHub/Render!
-const IS_LOCAL_MODE = true;
+const IS_LOCAL_MODE = false;
 // ==========================================
 
 
@@ -369,4 +369,5 @@ window.toggleDateInput = toggleDateInput;
 window.changeQty = changeQty;
 window.submitOrder = submitOrder;
 window.showCatalog = showCatalog;
+
 window.showCart = showCart;
