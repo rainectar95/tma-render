@@ -8,7 +8,7 @@ const IS_LOCAL_MODE = false;
 const API_URL = '';
 const userId = tg.initDataUnsafe?.user?.id || 'test_user_777';
 
-// --- ЗАГЛУШКИ (для локального теста) ---
+// --- ЗАГЛУШКИ ---
 const MOCK_PRODUCTS = [
     { id: '1', name: 'Лаваш Тонкий', price: 60, stock: 100, imageUrl: 'https://via.placeholder.com/150', description: 'Армянский лаваш, 10 шт' },
 ];
@@ -24,7 +24,7 @@ let pendingChanges = {};
 
 // --- ИНИЦИАЛИЗАЦИЯ ---
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Настройка календаря
+    // 1. Настройка календаря (минимум завтра)
     const dateInput = document.getElementById('custom-date');
     if (dateInput) {
         const today = new Date();
@@ -40,21 +40,91 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (nameField) nameField.value = [u.first_name, u.last_name].join(' ').trim();
     }
 
-    // 3. ЗАГРУЗКА (БЕЗ КЭША)
+    // 3. 📞 ПОДКЛЮЧЕНИЕ МАСКИ ТЕЛЕФОНА 📞
+    const phoneInput = document.getElementById('phone');
+    if (phoneInput) {
+        phoneInput.addEventListener('input', onPhoneInput);
+        phoneInput.addEventListener('keydown', onPhoneKeyDown);
+        phoneInput.addEventListener('paste', onPhonePaste);
+    }
+
+    // 4. ЗАГРУЗКА ДАННЫХ (БЕЗ КЭША)
     await Promise.all([loadProducts(), loadCart()]);
 
     document.getElementById('loader').style.display = 'none';
     document.getElementById('app').style.display = 'block';
 });
 
-// --- UI НАВИГАЦИЯ ---
-function showCatalog() {
-    switchView('catalog');
+// --- ЛОГИКА МАСКИ ТЕЛЕФОНА ---
+function getInputNumbersValue(input) {
+    return input.value.replace(/\D/g, '');
 }
 
-function showCart() {
-    switchView('cart');
+function onPhonePaste(e) {
+    const input = e.target;
+    const inputNumbersValue = getInputNumbersValue(input);
+    const pasted = e.clipboardData || window.clipboardData;
+    if (pasted) {
+        const pastedText = pasted.getData('Text');
+        if (/\D/g.test(pastedText)) {
+            input.value = inputNumbersValue;
+            return;
+        }
+    }
 }
+
+function onPhoneInput(e) {
+    const input = e.target;
+    let inputNumbersValue = getInputNumbersValue(input);
+    let selectionStart = input.selectionStart;
+    let formattedInputValue = "";
+
+    if (!inputNumbersValue) {
+        return input.value = "";
+    }
+
+    if (input.value.length != selectionStart) {
+        if (e.data && /\D/g.test(e.data)) {
+            input.value = inputNumbersValue;
+        }
+        return;
+    }
+
+    if (["7", "8", "9"].indexOf(inputNumbersValue[0]) > -1) {
+        if (inputNumbersValue[0] == "9") inputNumbersValue = "7" + inputNumbersValue;
+        
+        let firstSymbols = "+7"; // Всегда начинаем с +7
+        formattedInputValue = input.value = firstSymbols + " ";
+        
+        if (inputNumbersValue.length > 1) {
+            formattedInputValue += "(" + inputNumbersValue.substring(1, 4);
+        }
+        if (inputNumbersValue.length >= 5) {
+            formattedInputValue += ") " + inputNumbersValue.substring(4, 7);
+        }
+        if (inputNumbersValue.length >= 8) {
+            formattedInputValue += " " + inputNumbersValue.substring(7, 9);
+        }
+        if (inputNumbersValue.length >= 10) {
+            formattedInputValue += " " + inputNumbersValue.substring(9, 11);
+        }
+    } else {
+        formattedInputValue = "+" + inputNumbersValue.substring(0, 16);
+    }
+    input.value = formattedInputValue;
+}
+
+function onPhoneKeyDown(e) {
+    // Удаляем символ, если нажали Backspace
+    const inputValue = e.target.value.replace(/\D/g, '');
+    if (e.keyCode == 8 && inputValue.length == 1) {
+        e.target.value = "";
+    }
+}
+
+// --- НАВИГАЦИЯ ---
+function showCatalog() { switchView('catalog'); }
+function showCart() { switchView('cart'); }
 
 function switchView(viewName) {
     const catalogView = document.getElementById('catalog-view');
@@ -80,7 +150,7 @@ function switchView(viewName) {
     }
 }
 
-// --- ЛОГИКА ДАННЫХ ---
+// --- ЗАГРУЗКА ---
 async function loadProducts() {
     try {
         if (IS_LOCAL_MODE) {
@@ -88,14 +158,10 @@ async function loadProducts() {
         } else {
             const res = await fetch(`${API_URL}/api/get_products`);
             const data = await res.json();
-            if (data.products) {
-                state.products = data.products;
-            }
+            if (data.products) state.products = data.products;
         }
         renderProducts();
-    } catch (e) {
-        console.error("Ошибка загрузки товаров", e);
-    }
+    } catch (e) { console.error("Ошибка загрузки товаров", e); }
 }
 
 async function loadCart() {
@@ -108,13 +174,14 @@ async function loadCart() {
             const data = await res.json();
             if (data.cart) {
                 state.cart = data.cart;
-                calculateTotals(); 
+                calculateTotals();
                 updateCartUI();
             }
         }
     } catch (e) { console.error(e); }
 }
 
+// --- КОРЗИНА И ИНТЕРФЕЙС ---
 async function changeQty(itemId, delta) {
     tg.HapticFeedback.selectionChanged();
 
@@ -182,7 +249,7 @@ async function removeItem(itemId) {
     if (item) await changeQty(itemId, -item.qty);
 }
 
-// 🔥 ФУНКЦИЯ ОФОРМЛЕНИЯ ЗАКАЗА 🔥
+// 🔥 ОФОРМЛЕНИЕ ЗАКАЗА 🔥
 async function submitOrder() {
     const name = document.getElementById('name').value;
     const phone = document.getElementById('phone').value;
@@ -192,13 +259,12 @@ async function submitOrder() {
 
     const rawDate = document.getElementById('custom-date').value;
     
-    // 1. Проверка даты
+    // Проверка даты
     if (!rawDate && !IS_LOCAL_MODE) {
         return tg.showAlert("Выберите дату доставки!");
     }
 
     const dateVal = rawDate ? formatSmartDate(rawDate) : '';
-    // 2. Время устройства
     const deviceTime = new Date().toLocaleString('ru-RU');
 
     if (IS_LOCAL_MODE) {
@@ -225,8 +291,8 @@ async function submitOrder() {
                 orderDetails: {
                     name, phone, address, deliveryType,
                     deliveryDate: dateVal,
-                    deliveryRaw: rawDate, // Сырая дата
-                    creationTime: deviceTime, // Время устройства
+                    deliveryRaw: rawDate, 
+                    creationTime: deviceTime, 
                     comment
                 }
             })
@@ -260,9 +326,7 @@ function calculateTotals() {
         }
     });
 
-    // Доставка = 0
     const deliveryCost = 0; 
-
     state.totals = {
         totalItemsAmount,
         deliveryCost,
@@ -271,7 +335,6 @@ function calculateTotals() {
     };
 }
 
-// --- ОТРИСОВКА ---
 function updateCartUI() {
     const delCostElem = document.getElementById('delivery-cost');
     const totalElem = document.getElementById('total-price');
