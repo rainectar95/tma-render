@@ -3,12 +3,11 @@ const { google } = require('googleapis');
 const cors = require('cors');
 const NodeCache = require('node-cache');
 const path = require('path');
-// Подключаем библиотеку для бота
-const TelegramBot = require('node-telegram-bot-api');
+const TelegramBot = require('node-telegram-bot-api'); // Библиотека бота
 require('dotenv').config();
 
 const app = express();
-// 🔥 КЭШ = 5 секунд. Данные обновляются быстро.
+// 🔥 КЭШ = 5 секунд.
 const cache = new NodeCache({ stdTTL: 5 }); 
 
 app.use(cors());
@@ -20,12 +19,10 @@ const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_PRODUCTS = "Товары";
 const SHEET_CLIENTS = "Клиенты";
 
-// --- НАСТРОЙКА TELEGRAM БОТА ---
-// Берем токен и ID из настроек Render (или используем заглушку, если не настроено)
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'ВАШ_ТОКЕН';
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || 'ВАШ_ID';
+// --- НАСТРОЙКИ БОТА ---
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 
-// Запускаем бота (polling: false, так как мы только отправляем сообщения)
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
 
 // --- АВТОРИЗАЦИЯ GOOGLE ---
@@ -308,34 +305,41 @@ app.post('/api/action', async (req, res) => {
                 if (p.stock > 0) await updateRow(`${SHEET_PRODUCTS}!G${p.rowIndex}`, [p.stock - item.qty]);
             }
 
-            let datePartForId = "";
+            // Логика даты для имени листа (для БД)
             let targetSheetName = "";
             if (data.orderDetails.deliveryRaw && data.orderDetails.deliveryRaw.includes('-')) {
                 const parts = data.orderDetails.deliveryRaw.split('-'); 
-                datePartForId = `${parts[2]}.${parts[1]}`;
                 targetSheetName = `${parts[2]}.${parts[1]}.${parts[0]}`;
             } else {
                 const now = new Date();
                 const d = String(now.getDate()).padStart(2, '0');
                 const m = String(now.getMonth() + 1).padStart(2, '0');
                 const y = now.getFullYear();
-                datePartForId = `${d}.${m}`;
                 targetSheetName = `${d}.${m}.${y}`;
             }
 
             await ensureDailySheet(targetSheetName);
 
+            // 1. ГЕНЕРАЦИЯ ID (С-001)
             const existingRows = await getSheetData(`${targetSheetName}!A:A`);
             const nextRowIndex = existingRows.length + 1; 
-            const orderCount = existingRows.length; 
-            const nextNum = String(orderCount === 0 ? 1 : orderCount).padStart(3, '0');
+            const orderCount = existingRows.length; // если есть заголовок, то кол-во строк = кол-во заказов + 1 (не совсем, но индекс верный)
+            // Если заказов 0 (только хедер), то длина 1. ID должен быть 1.
+            // Если заказов 1, длина 2. ID должен быть 2.
+            // Логика: если длина 0 (пустой лист) - 1, если длина 1 (хедер) - 1. 
+            const counter = orderCount === 0 ? 1 : orderCount; 
+            const nextNum = String(counter).padStart(3, '0');
             const typeLetter = (data.orderDetails.deliveryType === 'Самовывоз') ? 'С' : 'Д';
-            const orderId = `${typeLetter}-${datePartForId}-${nextNum}`;
+            
+            // 🔥 НОВЫЙ ФОРМАТ ID: С-008
+            const orderId = `${typeLetter}-${nextNum}`;
             const totals = calculateOrderTotals(cart, products);
             
             const dateOptions = { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' };
             const nowTime = new Date().toLocaleString("ru-RU", dateOptions);
-            const formattedPhone = `="${data.orderDetails.phone}"`;
+            
+            // Для таблицы (с формулой)
+            const formattedPhone = `="${data.orderDetails.phone}"`; 
             const productsString = itemsList.join('\n');
 
             const orderData = [orderId, nowTime, data.orderDetails.name, formattedPhone, data.orderDetails.address, data.orderDetails.deliveryType, productsString, totals.finalTotal + ' ₽', 'Новый', data.orderDetails.comment, userId];
@@ -347,14 +351,30 @@ app.post('/api/action', async (req, res) => {
             
             cache.del("products");
 
-            // 👇 ОТПРАВКА УВЕДОМЛЕНИЙ 👇
+            // 👇 ОТПРАВКА УВЕДОМЛЕНИЙ (НОВЫЙ ШАБЛОН) 👇
             
-            // 1. Сообщение КЛИЕНТУ
-            const userMessage = `✅ <b>Заказ ${orderId} принят!</b>\n\n` +
-                                `📦 <b>Состав:</b>\n${itemsList.join('\n')}\n\n` +
-                                `💰 <b>Итого:</b> ${totals.finalTotal} ₽\n` +
-                                `📍 <b>Адрес:</b> ${data.orderDetails.address}\n\n` +
-                                `<i>Менеджер скоро свяжется с вами.</i>`;
+            // 1. Подготовка данных для сообщения
+            const cleanPhone = data.orderDetails.phone; // Чистый номер для ТГ (+7...)
+            
+            // Логика отображения адреса/типа
+            let displayAddress = "";
+            if (data.orderDetails.deliveryType === 'Самовывоз') {
+                displayAddress = "Самовывоз";
+            } else {
+                displayAddress = data.orderDetails.address;
+            }
+
+            // Логика комментария (если есть - добавляем строку)
+            let commentBlock = "";
+            if (data.orderDetails.comment && data.orderDetails.comment.trim() !== "") {
+                commentBlock = `📝  ${data.orderDetails.comment}\n`;
+            }
+
+            // 2. Сообщение КЛИЕНТУ (Простое подтверждение)
+            const userMessage = `✅ <b>Заказ № ${orderId} оформлен!</b>\n\n` +
+                                `💰 <b>Сумма:</b> ${totals.finalTotal} ₽\n` +
+                                `🚚 <b>Тип:</b> ${displayAddress}\n\n` +
+                                `<i>Скоро начнем готовить!</i>`;
             
             try {
                 await bot.sendMessage(userId, userMessage, { parse_mode: 'HTML' });
@@ -362,16 +382,16 @@ app.post('/api/action', async (req, res) => {
                 console.error("Не удалось отправить сообщение клиенту:", err.message);
             }
 
-            // 2. Сообщение АДМИНУ
-            const adminMessage = `🚨 <b>НОВЫЙ ЗАКАЗ!</b>\n` +
-                                 `#${orderId}\n\n` +
-                                 `👤 <b>Клиент:</b> ${data.orderDetails.name}\n` +
-                                 `📞 <b>Телефон:</b> ${formattedPhone}\n` +
-                                 `📍 <b>Адрес:</b> ${data.orderDetails.address}\n` +
-                                 `🚚 <b>Тип:</b> ${data.orderDetails.deliveryType}\n\n` +
-                                 `🛒 <b>Товары:</b>\n${itemsList.join('\n')}\n\n` +
-                                 `💰 <b>Сумма:</b> ${totals.finalTotal} ₽\n` +
-                                 `📝 <b>Коммент:</b> ${data.orderDetails.comment}`;
+            // 3. Сообщение АДМИНУ (ВАШ ШАБЛОН)
+            const adminMessage = `Новый заказ 🔥\n\n` +
+                                 `<b>№ ${orderId}</b>\n\n` +
+                                 `👤  ${data.orderDetails.name}\n` +
+                                 `📞  ${cleanPhone}\n` +
+                                 `📍  ${displayAddress}\n` +
+                                 `${commentBlock}\n` +
+                                 `🛒  <b>Товары:</b>\n` +
+                                 `${itemsList.join('\n')}\n\n` +
+                                 `Сумма:   <b>${totals.finalTotal} ₽</b>`;
 
             try {
                 await bot.sendMessage(ADMIN_CHAT_ID, adminMessage, { parse_mode: 'HTML' });
@@ -380,7 +400,7 @@ app.post('/api/action', async (req, res) => {
             }
             // 👆 КОНЕЦ УВЕДОМЛЕНИЙ 👆
 
-            res.json({ status: 'success', orderId, message: `Заказ ${orderId} оформлен!` });
+            res.json({ status: 'success', orderId, message: `Заказ №${orderId} оформлен!` });
         }
     } catch (e) {
         console.error("SERVER ERROR:", e);
