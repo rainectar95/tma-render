@@ -6,7 +6,7 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
-const cache = new NodeCache({ stdTTL: 600 }); // Кэш на 10 минут
+const cache = new NodeCache({ stdTTL: 600 });
 
 app.use(cors());
 app.use(express.json());
@@ -16,8 +16,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_PRODUCTS = "Товары";
 const SHEET_CARTS = "Корзины";
-const BASE_DELIVERY_COST = 300;
-const FREE_DELIVERY_THRESHOLD = 5000;
+// Убрали BASE_DELIVERY_COST и FREE_DELIVERY_THRESHOLD
 
 // --- АВТОРИЗАЦИЯ GOOGLE ---
 const auth = new google.auth.GoogleAuth({
@@ -52,7 +51,7 @@ async function appendRow(range, values) {
     });
 }
 
-// 🔥 ГЛАВНАЯ ФУНКЦИЯ СОЗДАНИЯ КРАСИВОГО ЛИСТА 🔥
+// Проверка и создание листа по дате
 async function ensureDailySheet(sheetName) {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -61,21 +60,18 @@ async function ensureDailySheet(sheetName) {
         if (!sheetExists) {
             console.log(`📝 Создаем новый лист: ${sheetName}`);
             
-            // 1. Создаем лист и ПОЛУЧАЕМ ЕГО ID
+            // 1. Создаем лист и получаем ID
             const createRes = await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] }
             });
-            
-            // ID нового листа нужен для форматирования
             const newSheetId = createRes.data.replies[0].addSheet.properties.sheetId;
 
-            // 2. Наводим красоту (Форматирование)
+            // 2. Форматирование (Жирный шрифт, закрепление, ширина)
             await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: {
                     requests: [
-                        // Жирный шрифт для шапки (строка 1)
                         {
                             repeatCell: {
                                 range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 },
@@ -83,33 +79,32 @@ async function ensureDailySheet(sheetName) {
                                 fields: "userEnteredFormat.textFormat.bold"
                             }
                         },
-                        // Закрепить первую строку
                         {
                             updateSheetProperties: {
                                 properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } },
                                 fields: "gridProperties.frozenRowCount"
                             }
                         },
-                        // Настройка ширины колонок (в пикселях)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }, // A (ID)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 160 }, fields: "pixelSize" } }, // B (Время)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, // C (User ID)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 }, properties: { pixelSize: 150 }, fields: "pixelSize" } }, // D (Имя)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 4, endIndex: 5 }, properties: { pixelSize: 120 }, fields: "pixelSize" } }, // E (Телефон)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 5, endIndex: 6 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, // F (Адрес)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 }, properties: { pixelSize: 350 }, fields: "pixelSize" } }, // G (Товары - ШИРОКАЯ)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 7, endIndex: 8 }, properties: { pixelSize: 80 }, fields: "pixelSize" } },  // H (Сумма)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, // I (Статус)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 9, endIndex: 10 }, properties: { pixelSize: 150 }, fields: "pixelSize" } },// J (Комментарий)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 10, endIndex: 11 }, properties: { pixelSize: 120 }, fields: "pixelSize" } },// K (Тип)
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 11, endIndex: 12 }, properties: { pixelSize: 120 }, fields: "pixelSize" } } // L (Дата)
+                        // Ширина колонок
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 160 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 }, properties: { pixelSize: 150 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 4, endIndex: 5 }, properties: { pixelSize: 120 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 5, endIndex: 6 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 }, properties: { pixelSize: 350 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 7, endIndex: 8 }, properties: { pixelSize: 80 }, fields: "pixelSize" } },  
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 9, endIndex: 10 }, properties: { pixelSize: 150 }, fields: "pixelSize" } },
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 10, endIndex: 11 }, properties: { pixelSize: 120 }, fields: "pixelSize" } },
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 11, endIndex: 12 }, properties: { pixelSize: 120 }, fields: "pixelSize" } } 
                     ]
                 }
             });
 
-            // 3. Заполняем заголовки
+            // 3. Шапка
             const headers = [
-                "ID Заказа", "Время создания", "User ID", 
+                "ID Заказа", "Оформлен", "User ID", 
                 "Имя", "Телефон", "Адрес", 
                 "Товары", "Сумма", "Статус", 
                 "Комментарий", "Тип доставки", "Дата доставки"
@@ -137,8 +132,11 @@ function calculateOrderTotals(cart, products) {
             totalQty += item.qty;
         }
     });
-    const deliveryCost = (totalItemsAmount >= FREE_DELIVERY_THRESHOLD || totalItemsAmount === 0) ? 0 : BASE_DELIVERY_COST;
-    return { totalItemsAmount, deliveryCost, finalTotal: totalItemsAmount + deliveryCost, totalQty };
+    
+    // --- ИЗМЕНЕНИЕ: Доставка всегда 0 ---
+    const deliveryCost = 0; 
+    
+    return { totalItemsAmount, deliveryCost, finalTotal: totalItemsAmount, totalQty };
 }
 
 // --- API ROUTES ---
@@ -235,7 +233,7 @@ app.post('/api/action', async (req, res) => {
                 }
             }
 
-            // --- ОПРЕДЕЛЕНИЕ ДАТЫ И ЛИСТА ---
+            // Логика даты и ID
             let datePartForId = "";
             let targetSheetName = "";
 
