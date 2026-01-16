@@ -15,8 +15,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 // --- КОНФИГУРАЦИЯ ---
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_PRODUCTS = "Товары";
-const SHEET_CARTS = "Корзины";
 const SHEET_CLIENTS = "Клиенты";
+// SHEET_CARTS больше не нужен!
 
 // --- АВТОРИЗАЦИЯ ---
 const auth = new google.auth.GoogleAuth({
@@ -42,9 +42,7 @@ async function updateRow(range, values) {
     });
 }
 
-// Удаляем старый appendRow, будем использовать умный расчет строк
-
-// --- СОРТИРОВКА ЛИСТОВ ---
+// --- СОРТИРОВКА И ЛИСТЫ ---
 async function sortSheetsByDate() {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -91,7 +89,6 @@ function parseDate(str) {
     return new Date(parts[2], parts[1] - 1, parts[0]);
 }
 
-// --- СВОДКА ДНЯ ---
 async function updateDailySummary(sheetName) {
     try {
         const rows = await getSheetData(`${sheetName}!G2:G`);
@@ -111,7 +108,6 @@ async function updateDailySummary(sheetName) {
         });
         const summaryData = [['📦 ИТОГО НА ДЕНЬ', 'КОЛ-ВО']];
         for (const [name, qty] of Object.entries(totals)) summaryData.push([name, qty]);
-        
         await sheets.spreadsheets.values.clear({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!N1:O100` });
         await sheets.spreadsheets.values.update({
             spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!N1`, valueInputOption: 'USER_ENTERED', resource: { values: summaryData }
@@ -119,7 +115,6 @@ async function updateDailySummary(sheetName) {
     } catch (e) { console.error("Ошибка сводки:", e); }
 }
 
-// --- УПРАВЛЕНИЕ ЛИСТАМИ (ДНИ) ---
 async function ensureDailySheet(sheetName) {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -168,49 +163,16 @@ async function ensureDailySheet(sheetName) {
     } catch (e) { console.error("Daily Sheet Error:", e.message); }
 }
 
-async function ensureCartsSheet() {
-    try {
-        const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
-        const sheetExists = meta.data.sheets.some(s => s.properties.title === SHEET_CARTS);
-        if (!sheetExists) {
-            await sheets.spreadsheets.batchUpdate({ spreadsheetId: SPREADSHEET_ID, resource: { requests: [{ addSheet: { properties: { title: SHEET_CARTS } } }] } });
-            await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_CARTS}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [["User ID", "Корзина", "Дата"]] } });
-        }
-    } catch (e) { console.error(e); }
-}
-
-// --- УПРАВЛЕНИЕ БАЗОЙ КЛИЕНТОВ (ОБЪЕДИНЕНИЕ) ---
 async function ensureClientsSheet() {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
         const sheetExists = meta.data.sheets.some(s => s.properties.title === SHEET_CLIENTS);
-
         if (!sheetExists) {
             const createRes = await sheets.spreadsheets.batchUpdate({
                 spreadsheetId: SPREADSHEET_ID,
                 resource: { requests: [{ addSheet: { properties: { title: SHEET_CLIENTS } } }] }
             });
             const newSheetId = createRes.data.replies[0].addSheet.properties.sheetId;
-
-            await sheets.spreadsheets.batchUpdate({
-                spreadsheetId: SPREADSHEET_ID,
-                resource: {
-                    requests: [
-                        { repeatCell: { range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 }, cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: "CENTER" } }, fields: "userEnteredFormat" } },
-                        { updateSheetProperties: { properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } }, fields: "gridProperties.frozenRowCount" } },
-                        // Перенос строк включен для Имени (1) и Телефона (3), чтобы объединять
-                        { repeatCell: { range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 1, endColumnIndex: 2 }, cell: { userEnteredFormat: { wrapStrategy: "WRAP" } }, fields: "userEnteredFormat" } },
-                        { repeatCell: { range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 3, endColumnIndex: 4 }, cell: { userEnteredFormat: { wrapStrategy: "WRAP" } }, fields: "userEnteredFormat" } },
-                        
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 50 }, fields: "pixelSize" } },
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 150 }, fields: "pixelSize" } },
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 250 }, fields: "pixelSize" } },
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 }, properties: { pixelSize: 150 }, fields: "pixelSize" } },
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 4, endIndex: 5 }, properties: { pixelSize: 300 }, fields: "pixelSize" } },
-                    ]
-                }
-            });
-
             const headers = ["№", "Имя", "Адрес", "Номер телефона", "Последний заказ"];
             await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_CLIENTS}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headers] } });
         }
@@ -227,12 +189,9 @@ async function updateCustomerDatabase(customerData) {
         let foundIndex = -1;
         let foundByAddress = false;
 
-        // 1. Сначала ищем по Телефону
         for (let i = 0; i < rows.length; i++) {
             const cellVal = rows[i][3] || "";
-            // В ячейке может быть несколько телефонов через \n, ищем во всех
             const phonesInCell = cellVal.toString().split('\n');
-            
             for (let p of phonesInCell) {
                 if (p.replace(/\D/g, '') === phoneToFind && phoneToFind.length > 5) {
                     foundIndex = i;
@@ -242,7 +201,6 @@ async function updateCustomerDatabase(customerData) {
             if (foundIndex !== -1) break;
         }
 
-        // 2. Если по телефону не нашли, ищем по Адресу (для объединения)
         if (foundIndex === -1) {
             for (let i = 0; i < rows.length; i++) {
                 const cellAddr = (rows[i][2] || "").trim().toLowerCase();
@@ -257,53 +215,30 @@ async function updateCustomerDatabase(customerData) {
         const formattedPhone = `="${customerData.phone}"`; 
         
         if (foundIndex !== -1) {
-            // --- ОБНОВЛЕНИЕ ---
             const sheetRow = foundIndex + 2;
             const currentName = rows[foundIndex][1] || "";
             const currentPhone = rows[foundIndex][3] || "";
-            
             let newNameVal = currentName;
             let newPhoneVal = currentPhone;
 
-            // Если нашли по Адресу (значит телефон новый), добавляем данные через перенос строки
             if (foundByAddress) {
-                if (!currentName.includes(customerData.name)) {
-                    newNameVal = currentName + "\n" + customerData.name;
-                }
+                if (!currentName.includes(customerData.name)) newNameVal = currentName + "\n" + customerData.name;
                 if (!currentPhone.includes(customerData.phone)) {
-                    // Телефоны храним как формулы, сложно клеить формулы.
-                    // При объединении придется сохранять как текст, иначе формула сломается.
-                    // Берем старое значение (убираем =" и ") и добавляем новое
                     const cleanOld = currentPhone.replace(/^="/, '').replace(/"$/, '');
                     newPhoneVal = cleanOld + "\n" + customerData.phone;
                 }
             } else {
-                // Нашли по телефону - обновляем имя если изменилось
-                if (customerData.name.length > currentName.length) {
-                    newNameVal = customerData.name;
-                }
-                newPhoneVal = formattedPhone; // Обновляем формат если надо
+                if (customerData.name.length > currentName.length) newNameVal = customerData.name;
+                newPhoneVal = formattedPhone;
             }
 
             const updateRange = `${SHEET_CLIENTS}!B${sheetRow}:E${sheetRow}`;
             await updateRow(updateRange, [newNameVal, customerData.address, newPhoneVal, customerData.items]);
-            console.log(`🔄 Клиент обновлен (row ${sheetRow})`);
-
         } else {
-            // --- СОЗДАНИЕ ---
             const nextId = rows.length + 1;
-            // Используем values.update по координатам, чтобы не было смещений
             const newRowIndex = rows.length + 2;
-            
-            const newRow = [
-                nextId,              
-                customerData.name,   
-                customerData.address,
-                formattedPhone,      
-                customerData.items   
-            ];
+            const newRow = [nextId, customerData.name, customerData.address, formattedPhone, customerData.items];
             await updateRow(`${SHEET_CLIENTS}!A${newRowIndex}`, newRow);
-            console.log(`✅ Новый клиент добавлен`);
         }
     } catch (e) { console.error("Client Update Logic Error:", e); }
 }
@@ -327,7 +262,6 @@ app.get('/api/get_products', async (req, res) => {
     try {
         const cached = cache.get("products");
         if (cached) return res.json(cached);
-
         const rows = await getSheetData(`${SHEET_PRODUCTS}!A2:I`);
         const products = rows
             .filter(row => row[7] === 'TRUE' || row[7] === 'Да' || row[7] === true)
@@ -336,82 +270,23 @@ app.get('/api/get_products', async (req, res) => {
                 price: parseFloat(row[3]) || 0, description: row[4], imageUrl: row[5],
                 stock: parseInt(row[6]) || 0, rowIndex: index + 2
             }));
-
         const response = { status: 'success', products };
         cache.set("products", response);
         res.json(response);
-    } catch (error) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 });
 
-app.get('/api/get_cart', async (req, res) => {
-    try {
-        await ensureCartsSheet();
-        const userId = req.query.userId;
-        const cartRows = await getSheetData(SHEET_CARTS);
-        const userRow = cartRows.find(row => row[0] == userId);
-        const cart = userRow ? JSON.parse(userRow[1]) : [];
-        const prodRows = await getSheetData(`${SHEET_PRODUCTS}!A2:D`);
-        const products = prodRows.map(r => ({ id: r[0], price: parseFloat(r[3]) || 0 }));
-        res.json({ status: 'success', cart, totals: calculateOrderTotals(cart, products) });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
+// app.get('/api/get_cart') БОЛЬШЕ НЕ НУЖЕН - удален
 
 app.post('/api/action', async (req, res) => {
     const { action, userId, ...data } = req.body;
     try {
-        if (action === 'add_to_cart') {
-            await ensureCartsSheet();
-            const cartRows = await getSheetData(SHEET_CARTS);
-            let rowIndex = -1;
-            let currentCart = [];
-            for (let i = 0; i < cartRows.length; i++) {
-                if (cartRows[i][0] == userId) {
-                    rowIndex = i + 1; // +1 т.к. массив с 0
-                    // Учтем шапку (строка 1), значит данные начинаются с строки 2
-                    // Но массив rows включает шапку только если range A1. 
-                    // getSheetData читает весь лист по умолчанию или range.
-                    // Если мы читали весь лист, то i=0 это первая строка данных (если без шапки).
-                    // Моя функция getSheetData читает range. Если range "Корзины", то читает все.
-                    // Обычно надежнее искать по ID.
-                    currentCart = JSON.parse(cartRows[i][1] || '[]');
-                    break;
-                }
-            }
-            // Перестраховка индекса
-            const sheetRowIndex = rowIndex === -1 ? cartRows.length + 1 : rowIndex + 1; // +1 для учета смещения в Sheets
-
-            const idx = currentCart.findIndex(it => it.id === data.itemId);
-            if (idx !== -1) {
-                currentCart[idx].qty += data.quantity;
-                if (currentCart[idx].qty <= 0) currentCart.splice(idx, 1);
-            } else if (data.quantity > 0) {
-                currentCart.push({ id: data.itemId, qty: data.quantity });
-            }
-            const now = new Date().toISOString();
-            
-            if (rowIndex !== -1) {
-                await updateRow(`${SHEET_CARTS}!B${sheetRowIndex}:C${sheetRowIndex}`, [JSON.stringify(currentCart), now]);
-            } else {
-                // Если новая запись, пишем в следующую пустую строку
-                const nextRow = cartRows.length + 1; 
-                await updateRow(`${SHEET_CARTS}!A${nextRow}`, [userId, JSON.stringify(currentCart), now]);
-            }
-            
-            const allP = await getSheetData(`${SHEET_PRODUCTS}!A2:D`);
-            const productsSimple = allP.map(r => ({ id: r[0], price: parseFloat(r[3]) || 0 }));
-            res.json({ status: 'success', newCart: currentCart, newTotals: calculateOrderTotals(currentCart, productsSimple) });
-        }
-        else if (action === 'place_order') {
-            await ensureCartsSheet();
-            const cartRows = await getSheetData(SHEET_CARTS);
-            const userRow = cartRows.find(r => r[0] == userId);
-            if (!userRow) throw new Error("Cart empty");
-            const cart = JSON.parse(userRow[1]);
-            if (!cart.length) throw new Error("Cart empty");
+        // Убрали 'add_to_cart'
+        
+        if (action === 'place_order') {
+            // 🔥 ПОЛУЧАЕМ КОРЗИНУ ПРЯМО ОТ КЛИЕНТА
+            const cart = data.cart; 
+            if (!cart || !cart.length) throw new Error("Cart empty");
 
             const prodRows = await getSheetData(`${SHEET_PRODUCTS}!A2:I`);
             const products = prodRows.map((row, i) => ({
@@ -422,19 +297,16 @@ app.post('/api/action', async (req, res) => {
             let totalSum = 0;
             for (const item of cart) {
                 const p = products.find(x => x.id === item.id);
-                if (!p) throw new Error("Product not found");
+                if (!p) throw new Error("Product not found: " + item.id);
                 if (p.stock > 0 && item.qty > p.stock) throw new Error(`Stock low: ${p.name}`);
                 itemsList.push(`${p.name} x ${item.qty}`);
                 totalSum += p.price * item.qty;
-                if (p.stock > 0) {
-                    await updateRow(`${SHEET_PRODUCTS}!G${p.rowIndex}`, [p.stock - item.qty]);
-                }
+                if (p.stock > 0) await updateRow(`${SHEET_PRODUCTS}!G${p.rowIndex}`, [p.stock - item.qty]);
             }
 
-            // --- ДАТА И ЛИСТ ---
+            // Логика даты
             let datePartForId = "";
             let targetSheetName = "";
-
             if (data.orderDetails.deliveryRaw && data.orderDetails.deliveryRaw.includes('-')) {
                 const parts = data.orderDetails.deliveryRaw.split('-'); 
                 datePartForId = `${parts[2]}.${parts[1]}`;
@@ -450,17 +322,12 @@ app.post('/api/action', async (req, res) => {
 
             await ensureDailySheet(targetSheetName);
 
-            // 🔥 ВАЖНО: Читаем текущие данные, чтобы понять, в какую СТРОКУ писать (избегаем смещения вправо)
             const existingRows = await getSheetData(`${targetSheetName}!A:A`);
-            const nextRowIndex = existingRows.length + 1; // Если есть 1 строка (шапка), пишем во 2-ю
-            
-            // Номер заказа
-            const orderCount = existingRows.length; // 1 (шапка) -> заказ 001
+            const nextRowIndex = existingRows.length + 1; 
+            const orderCount = existingRows.length; 
             const nextNum = String(orderCount === 0 ? 1 : orderCount).padStart(3, '0');
-            
             const typeLetter = (data.orderDetails.deliveryType === 'Самовывоз') ? 'С' : 'Д';
             const orderId = `${typeLetter}-${datePartForId}-${nextNum}`;
-
             const totals = calculateOrderTotals(cart, products);
             
             const dateOptions = { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' };
@@ -468,48 +335,14 @@ app.post('/api/action', async (req, res) => {
             const formattedPhone = `="${data.orderDetails.phone}"`;
             const productsString = itemsList.join('\n');
 
-            const orderData = [
-                orderId, 
-                nowTime, 
-                data.orderDetails.name, 
-                formattedPhone, 
-                data.orderDetails.address,
-                data.orderDetails.deliveryType,
-                productsString, 
-                totals.finalTotal + ' ₽', 
-                'Новый',
-                data.orderDetails.comment,
-                userId 
-            ];
+            const orderData = [orderId, nowTime, data.orderDetails.name, formattedPhone, data.orderDetails.address, data.orderDetails.deliveryType, productsString, totals.finalTotal + ' ₽', 'Новый', data.orderDetails.comment, userId];
 
-            // 1. Записываем заказ СТРОГО в колонку A следующей строки
             await updateRow(`${targetSheetName}!A${nextRowIndex}`, orderData);
-            
-            // 2. Обновляем сводку
             await updateDailySummary(targetSheetName);
             await sortSheetsByDate();
-
-            await updateCustomerDatabase({
-                name: data.orderDetails.name,
-                phone: data.orderDetails.phone,
-                address: data.orderDetails.address,
-                items: productsString
-            });
-
-            // Очистка
-            const rowIndex = cartRows.findIndex(r => r[0] == userId) + 1;
-            // Тут +1 может быть мало если массив не с 1 строки. 
-            // Надежнее найти пользователя и его индекс в массиве rows
-            // cartRows[0] это строка 1? getSheetData читает как есть.
-            // Если лист "Корзины", и мы не указываем диапазон, он читает все usedRange.
-            // Допустим, user на 5 месте в массиве (индекс 4). В таблице это строка 5 (если с 1 начать).
-            // Плюс шапка? В getSheetData мы читаем ВЕСЬ лист.
-            // Если userRow найден, берем индекс.
-            const userSheetRow = cartRows.indexOf(userRow) + 1;
-            await updateRow(`${SHEET_CARTS}!B${userSheetRow}`, ["[]"]);
+            await updateCustomerDatabase({ name: data.orderDetails.name, phone: data.orderDetails.phone, address: data.orderDetails.address, items: productsString });
             
             cache.del("products");
-
             res.json({ status: 'success', orderId, message: `Заказ ${orderId} оформлен!` });
         }
     } catch (e) {
