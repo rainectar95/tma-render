@@ -6,7 +6,8 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
-const cache = new NodeCache({ stdTTL: 600 }); 
+// 🔥 КЭШ = 5 секунд. Данные будут обновляться почти мгновенно.
+const cache = new NodeCache({ stdTTL: 5 }); 
 
 app.use(cors());
 app.use(express.json());
@@ -16,7 +17,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_PRODUCTS = "Товары";
 const SHEET_CLIENTS = "Клиенты";
-// SHEET_CARTS больше не нужен!
+// Лист "Корзины" больше не нужен, мы храним её в телефоне
 
 // --- АВТОРИЗАЦИЯ ---
 const auth = new google.auth.GoogleAuth({
@@ -42,7 +43,7 @@ async function updateRow(range, values) {
     });
 }
 
-// --- СОРТИРОВКА И ЛИСТЫ ---
+// --- СОРТИРОВКА ЛИСТОВ ---
 async function sortSheetsByDate() {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -138,7 +139,6 @@ async function ensureDailySheet(sheetName) {
                         { repeatCell: { range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 6, endColumnIndex: 7 }, cell: { userEnteredFormat: { horizontalAlignment: "LEFT", verticalAlignment: "MIDDLE" } }, fields: "userEnteredFormat" } },
                         { repeatCell: { range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 9, endColumnIndex: 10 }, cell: { userEnteredFormat: { wrapStrategy: "WRAP", horizontalAlignment: "CENTER", verticalAlignment: "MIDDLE" } }, fields: "userEnteredFormat" } },
                         
-                        // Ширина колонок
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, 
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 130 }, fields: "pixelSize" } }, 
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 120 }, fields: "pixelSize" } }, 
@@ -276,17 +276,12 @@ app.get('/api/get_products', async (req, res) => {
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 });
 
-// app.get('/api/get_cart') БОЛЬШЕ НЕ НУЖЕН - удален
-
 app.post('/api/action', async (req, res) => {
     const { action, userId, ...data } = req.body;
     try {
-        // Убрали 'add_to_cart'
-        
         if (action === 'place_order') {
-            // 🔥 ПОЛУЧАЕМ КОРЗИНУ ПРЯМО ОТ КЛИЕНТА
             const cart = data.cart; 
-            if (!cart || !cart.length) throw new Error("Cart empty");
+            if (!cart || !cart.length) throw new Error("Корзина пуста");
 
             const prodRows = await getSheetData(`${SHEET_PRODUCTS}!A2:I`);
             const products = prodRows.map((row, i) => ({
@@ -297,14 +292,13 @@ app.post('/api/action', async (req, res) => {
             let totalSum = 0;
             for (const item of cart) {
                 const p = products.find(x => x.id === item.id);
-                if (!p) throw new Error("Product not found: " + item.id);
-                if (p.stock > 0 && item.qty > p.stock) throw new Error(`Stock low: ${p.name}`);
+                if (!p) throw new Error("Товар не найден: " + item.id);
+                if (p.stock > 0 && item.qty > p.stock) throw new Error(`Мало товара: ${p.name}`);
                 itemsList.push(`${p.name} x ${item.qty}`);
                 totalSum += p.price * item.qty;
                 if (p.stock > 0) await updateRow(`${SHEET_PRODUCTS}!G${p.rowIndex}`, [p.stock - item.qty]);
             }
 
-            // Логика даты
             let datePartForId = "";
             let targetSheetName = "";
             if (data.orderDetails.deliveryRaw && data.orderDetails.deliveryRaw.includes('-')) {
@@ -347,7 +341,7 @@ app.post('/api/action', async (req, res) => {
         }
     } catch (e) {
         console.error("SERVER ERROR:", e);
-        res.status(500).json({ status: 'error', message: "Error: " + e.message });
+        res.status(500).json({ status: 'error', message: "Ошибка: " + e.message });
     }
 });
 
