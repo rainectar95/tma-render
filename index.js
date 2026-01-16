@@ -47,10 +47,76 @@ async function appendRow(range, values) {
     });
 }
 
-// 🔥 ПОДСЧЕТ ИТОГОВ НА ДЕНЬ (Справа от таблицы) 🔥
+// 🔥 СОРТИРОВКА ЛИСТОВ ПО ДАТЕ 🔥
+async function sortSheetsByDate() {
+    try {
+        // 1. Получаем список всех листов
+        const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+        const allSheets = meta.data.sheets;
+
+        // 2. Разделяем на "Обычные" и "Даты"
+        const otherSheets = [];
+        const dateSheets = [];
+
+        allSheets.forEach(sheet => {
+            const title = sheet.properties.title;
+            // Проверяем, похож ли заголовок на дату DD.MM.YYYY
+            if (/^\d{2}\.\d{2}\.\d{4}$/.test(title)) {
+                dateSheets.push(sheet);
+            } else {
+                otherSheets.push(sheet);
+            }
+        });
+
+        // 3. Сортируем даты
+        dateSheets.sort((a, b) => {
+            const dateA = parseDate(a.properties.title);
+            const dateB = parseDate(b.properties.title);
+            return dateA - dateB;
+        });
+
+        // 4. Собираем правильный порядок (Сначала системные, потом даты)
+        const sortedSheets = [...otherSheets, ...dateSheets];
+
+        // 5. Формируем запросы на перемещение (только если индекс не совпадает)
+        const requests = [];
+        sortedSheets.forEach((sheet, index) => {
+            if (sheet.properties.index !== index) {
+                requests.push({
+                    updateSheetProperties: {
+                        properties: {
+                            sheetId: sheet.properties.sheetId,
+                            index: index
+                        },
+                        fields: "index"
+                    }
+                });
+            }
+        });
+
+        // 6. Отправляем в Google (если есть что менять)
+        if (requests.length > 0) {
+            console.log(`🔄 Сортируем листы (${requests.length} перемещений)...`);
+            await sheets.spreadsheets.batchUpdate({
+                spreadsheetId: SPREADSHEET_ID,
+                resource: { requests }
+            });
+        }
+    } catch (e) {
+        console.error("Ошибка сортировки:", e.message);
+    }
+}
+
+// Парсер даты из строки "17.01.2026"
+function parseDate(str) {
+    const parts = str.split('.'); // [17, 01, 2026]
+    // Месяцы в JS начинаются с 0 (январь = 0)
+    return new Date(parts[2], parts[1] - 1, parts[0]);
+}
+
+// ПОДСЧЕТ ИТОГОВ НА ДЕНЬ
 async function updateDailySummary(sheetName) {
     try {
-        // Читаем товары из колонки G
         const rows = await getSheetData(`${sheetName}!G2:G`);
         const totals = {};
 
@@ -73,9 +139,6 @@ async function updateDailySummary(sheetName) {
             summaryData.push([name, qty]);
         }
 
-        // Пишем в колонки M и N (начинаем с 13-й колонки, так как таблица занимает A-K)
-        // A=0 ... K=10, L=11 (пустая), M=12, N=13
-        // Давайте писать в N и O (13 и 14), чтобы был отступ
         await sheets.spreadsheets.values.clear({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!N1:O100` });
         await sheets.spreadsheets.values.update({
             spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!N1`, valueInputOption: 'USER_ENTERED', resource: { values: summaryData }
@@ -83,7 +146,7 @@ async function updateDailySummary(sheetName) {
     } catch (e) { console.error("Ошибка сводки:", e); }
 }
 
-// 🔥 СОЗДАНИЕ И НАСТРОЙКА ЛИСТА ПОД НОВЫЙ ДИЗАЙН 🔥
+// СОЗДАНИЕ ЛИСТА
 async function ensureDailySheet(sheetName) {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -104,8 +167,8 @@ async function ensureDailySheet(sheetName) {
                 spreadsheetId: SPREADSHEET_ID,
                 resource: {
                     requests: [
-                        // --- 1. ШАПКА ---
-                        { // Жирный шрифт + Центр + Фон
+                        // ШАПКА
+                        { 
                             repeatCell: {
                                 range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 },
                                 cell: { 
@@ -118,15 +181,9 @@ async function ensureDailySheet(sheetName) {
                                 fields: "userEnteredFormat(textFormat,horizontalAlignment,verticalAlignment)"
                             }
                         },
-                        { // Закрепить 1 строку
-                            updateSheetProperties: {
-                                properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } },
-                                fields: "gridProperties.frozenRowCount"
-                            }
-                        },
+                        { updateSheetProperties: { properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } }, fields: "gridProperties.frozenRowCount" } },
 
-                        // --- 2. ОСНОВНОЕ ТЕЛО ТАБЛИЦЫ (A2:K1000) ---
-                        // По умолчанию: Центр + Середина для ВСЕХ
+                        // ТЕЛО ТАБЛИЦЫ (Центр)
                         {
                             repeatCell: {
                                 range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 0, endColumnIndex: 11 },
@@ -135,8 +192,8 @@ async function ensureDailySheet(sheetName) {
                             }
                         },
                         
-                        // --- 3. ИСКЛЮЧЕНИЯ ---
-                        // Колонка G (Товары) - Выравнивание ВЛЕВО
+                        // ИСКЛЮЧЕНИЯ
+                        // G (Товары) - ВЛЕВО
                         {
                             repeatCell: {
                                 range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 6, endColumnIndex: 7 },
@@ -144,7 +201,7 @@ async function ensureDailySheet(sheetName) {
                                 fields: "userEnteredFormat(horizontalAlignment,verticalAlignment)"
                             }
                         },
-                        // Колонка J (Комментарий) - Перенос текста
+                        // J (Коммент) - Перенос
                         {
                             repeatCell: {
                                 range: { sheetId: newSheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 9, endColumnIndex: 10 },
@@ -153,27 +210,27 @@ async function ensureDailySheet(sheetName) {
                             }
                         },
 
-                        // --- 4. ШИРИНА КОЛОНОК ---
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, // A: Заказ
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 130 }, fields: "pixelSize" } }, // B: Оформлен
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 120 }, fields: "pixelSize" } }, // C: Имя
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 }, properties: { pixelSize: 140 }, fields: "pixelSize" } }, // D: Телефон
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 4, endIndex: 5 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, // E: Адрес
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 5, endIndex: 6 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }, // F: Тип дост
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 }, properties: { pixelSize: 300 }, fields: "pixelSize" } }, // G: Товары
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 7, endIndex: 8 }, properties: { pixelSize: 90 }, fields: "pixelSize" } },  // H: Сумма
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, properties: { pixelSize: 80 }, fields: "pixelSize" } },  // I: Статус
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 9, endIndex: 10 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, // J: Коммент
-                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 10, endIndex: 11 }, properties: { hiddenByUser: true }, fields: "hiddenByUser" } }, // K: UserID (СКРЫТ)
+                        // ШИРИНА
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 100 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 2 }, properties: { pixelSize: 130 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 }, properties: { pixelSize: 120 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 }, properties: { pixelSize: 140 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 4, endIndex: 5 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 5, endIndex: 6 }, properties: { pixelSize: 110 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 }, properties: { pixelSize: 300 }, fields: "pixelSize" } }, // Товары
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 7, endIndex: 8 }, properties: { pixelSize: 90 }, fields: "pixelSize" } },  
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, properties: { pixelSize: 80 }, fields: "pixelSize" } },  
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 9, endIndex: 10 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, 
+                        { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 10, endIndex: 11 }, properties: { hiddenByUser: true }, fields: "hiddenByUser" } }, // K (UID)
                         
-                        // Сводка (N, O)
+                        // Сводка
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 13, endIndex: 14 }, properties: { pixelSize: 200 }, fields: "pixelSize" } }, 
                         { updateDimensionProperties: { range: { sheetId: newSheetId, dimension: "COLUMNS", startIndex: 14, endIndex: 15 }, properties: { pixelSize: 80 }, fields: "pixelSize" } }   
                     ]
                 }
             });
 
-            // 3. Заголовки (Новый порядок)
+            // 3. Заголовки
             const headers = [
                 "Заказ", "Оформлен", "Имя", 
                 "Телефон", "Адрес", "Тип доставки", 
@@ -325,19 +382,14 @@ app.post('/api/action', async (req, res) => {
 
             const totals = calculateOrderTotals(cart, products);
             
-            // --- ФОРМАТИРОВАНИЕ ДАННЫХ ---
-            // 1. Время без секунд (16.01.2026, 14:09)
+            // Формат даты без секунд
             const dateOptions = { 
                 year: 'numeric', month: 'numeric', day: 'numeric', 
                 hour: '2-digit', minute: '2-digit' 
             };
             const nowTime = new Date().toLocaleString("ru-RU", dateOptions);
-            
-            // 2. Телефон с формулой ="..." чтобы не было ошибки
             const formattedPhone = `="${data.orderDetails.phone}"`;
 
-            // 3. Формирование строки заказа (НОВЫЙ ПОРЯДОК СТОЛБЦОВ)
-            // A: Заказ, B: Оформлен, C: Имя, D: Тел, E: Адрес, F: Тип, G: Товары, H: Сумма, I: Статус, J: Коммент, K: UID
             const orderData = [
                 orderId, 
                 nowTime, 
@@ -349,11 +401,13 @@ app.post('/api/action', async (req, res) => {
                 totals.finalTotal + ' ₽', 
                 'Новый',
                 data.orderDetails.comment,
-                userId // Скрытая колонка
+                userId 
             ];
 
             await appendRow(targetSheetName, orderData);
             await updateDailySummary(targetSheetName);
+            // 🔥 ВЫЗОВ СОРТИРОВКИ ПОСЛЕ ЗАКАЗА 🔥
+            await sortSheetsByDate();
 
             const rowIndex = cartRows.findIndex(r => r[0] == userId) + 1;
             await updateRow(`${SHEET_CARTS}!B${rowIndex}`, ["[]"]);
