@@ -259,8 +259,7 @@ app.post('/api/action', async (req, res) => {
             const orderId = `${typeLetter}-${datePartForId}-${nextNum}`;
 
             const totals = calculateOrderTotals(cart, products);
-            const nowTime = new Date().toLocaleString("ru-RU");
-
+            const nowTime = data.orderDetails.creationTime || new Date().toLocaleString("ru-RU");
             const orderData = [
                 orderId, nowTime, userId,
                 data.orderDetails.name, data.orderDetails.phone, data.orderDetails.address,
@@ -287,3 +286,4 @@ app.post('/api/action', async (req, res) => {
 app.get('/ping', (req, res) => res.send('pong'));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
