@@ -1,24 +1,32 @@
+
 const tg = window.Telegram.WebApp;
 tg.expand();
 
 // ==========================================
 // ⚙️ НАСТРОЙКИ
 // ==========================================
-const IS_LOCAL_MODE = false; 
-const API_URL = '';
+const IS_LOCAL_MODE = flase;
+const API_URL = 'https://script.google.com/macros/s/AKfycbx.../exec'; // Вставьте вашу ссылку
 const userId = tg.initDataUnsafe?.user?.id || 'test_user_777';
 
 const MOCK_PRODUCTS = [
-    { id: '1', name: 'Лаваш Тонкий', price: 60, stock: 100, imageUrl: 'https://via.placeholder.com/150', description: 'Армянский лаваш, 10 шт' },
+    { id: '1', name: 'Лаваш Тонкий (Тест)', price: 60, stock: 100, imageUrl: './img/new/img-lavash-standart-01.webp', description: 'Армянский лаваш, 10 шт' },
+    { id: '2', name: 'Сыр Чанах (Тест)', price: 450, stock: 20, imageUrl: './img/new/img-cheese-chanax-02.webp', description: 'Рассольный сыр, 500г' },
+    { id: '3', name: 'Бастурма (Тест)', price: 1200, stock: 5, imageUrl: './img/new/img-cheese-chanax-04.webp', description: 'Вяленая говядина' },
+    { id: '4', name: 'Вода Джермук (Тест)', price: 80, stock: 50, imageUrl: 'https://bestwine24.ru/storage/optimized/product/voda/94b2b969d57206df8d51a298fdcd836b_67fd12090d875_600x800.webp', description: 'Минеральная вода 0.5л' },
+    { id: '5', name: 'Суджук (Тест)', price: 950, stock: 0, imageUrl: 'https://avatars.mds.yandex.net/get-eda/3798638/2e4f3381b5cde0cf90f70225436b2db2/orig', description: 'Нет в наличии' },
 ];
-
 let state = {
     products: [],
     cart: [],
     totals: { finalTotal: 0, deliveryCost: 0, totalQty: 0 }
 };
 
+// ==========================================
+// 🏁 ИНИЦИАЛИЗАЦИЯ
+// ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
+    // 1. Настройка календаря (минимум завтра)
     const dateInput = document.getElementById('custom-date');
     if (dateInput) {
         const today = new Date();
@@ -27,23 +35,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         dateInput.min = tomorrow.toISOString().split('T')[0];
     }
 
+    // 2. Имя пользователя из Телеграм
     if (tg.initDataUnsafe?.user) {
         const u = tg.initDataUnsafe.user;
         const nameField = document.getElementById('name');
         if (nameField) nameField.value = [u.first_name, u.last_name].join(' ').trim();
     }
 
+    // 3. Настройка маски телефона
     const phoneInput = document.getElementById('phone');
     if (phoneInput) {
         phoneInput.addEventListener('input', onPhoneInput);
         phoneInput.addEventListener('keydown', onPhoneKeyDown);
         phoneInput.addEventListener('paste', onPhonePaste);
+        phoneInput.addEventListener('focus', onPhoneFocus); // Показывает +7
+        phoneInput.addEventListener('blur', onPhoneBlur);   // Убирает, если пусто
+        
+        // Убираем красную обводку при вводе
+        phoneInput.addEventListener('input', () => phoneInput.classList.remove('input-error'));
     }
 
-    // 1. Загружаем свежие товары
+    // 4. Проверка полей доставки при старте
+    toggleDeliveryFields();
+
+    // 5. Загрузка товаров
     await loadProducts();
     
-    // 2. 🔥 Восстанавливаем корзину из памяти телефона
+    // 6. Восстановление корзины
     const savedCart = localStorage.getItem('myAppCart');
     if (savedCart) {
         try {
@@ -51,11 +69,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Проверяем актуальность остатков
             state.cart = parsedCart.filter(item => {
                 const product = state.products.find(p => p.id === item.id);
-                // Оставляем товар, только если он существует
                 return !!product; 
             }).map(item => {
                 const product = state.products.find(p => p.id === item.id);
-                // Если товара на складе меньше, чем в корзине - уменьшаем
                 if (product.stock > 0 && item.qty > product.stock) {
                     item.qty = product.stock;
                 }
@@ -69,12 +85,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    // Снимаем лоадер
     document.getElementById('loader').style.display = 'none';
     document.getElementById('app').style.display = 'block';
+    
+    // Вешаем слушатели на инпуты, чтобы убирать красную обводку при вводе
+    document.querySelectorAll('input, textarea, select').forEach(el => {
+        el.addEventListener('input', function() {
+            this.classList.remove('input-error');
+        });
+    });
 });
 
-// --- МАСКА ТЕЛЕФОНА ---
+// ==========================================
+// 📞 МАСКА ТЕЛЕФОНА
+// ==========================================
+function onPhoneFocus(e) {
+    const input = e.target;
+    if (input.value === "") input.value = "+7 ";
+}
+
+function onPhoneBlur(e) {
+    const input = e.target;
+    if (input.value.trim() === "+7") input.value = "";
+}
+
 function getInputNumbersValue(input) { return input.value.replace(/\D/g, ''); }
+
 function onPhonePaste(e) {
     const input = e.target;
     const inputNumbersValue = getInputNumbersValue(input);
@@ -87,16 +124,20 @@ function onPhonePaste(e) {
         }
     }
 }
+
 function onPhoneInput(e) {
     const input = e.target;
     let inputNumbersValue = getInputNumbersValue(input);
     let selectionStart = input.selectionStart;
     let formattedInputValue = "";
+
     if (!inputNumbersValue) return input.value = "";
+
     if (input.value.length != selectionStart) {
         if (e.data && /\D/g.test(e.data)) input.value = inputNumbersValue;
         return;
     }
+
     if (["7", "8", "9"].indexOf(inputNumbersValue[0]) > -1) {
         if (inputNumbersValue[0] == "9") inputNumbersValue = "7" + inputNumbersValue;
         let firstSymbols = "+7"; 
@@ -110,14 +151,37 @@ function onPhoneInput(e) {
     }
     input.value = formattedInputValue;
 }
+
 function onPhoneKeyDown(e) {
     const inputValue = e.target.value.replace(/\D/g, '');
     if (e.keyCode == 8 && inputValue.length == 1) e.target.value = "";
 }
 
-// --- НАВИГАЦИЯ ---
+// ==========================================
+// 🚚 ЛОГИКА ДОСТАВКИ
+// ==========================================
+function toggleDeliveryFields() {
+    const type = document.getElementById('delivery-type').value;
+    const courierBlock = document.getElementById('courier-fields');
+    const pickupBlock = document.getElementById('pickup-info');
+
+    if (courierBlock && pickupBlock) {
+        if (type === 'Самовывоз') {
+            courierBlock.classList.add('hidden');
+            pickupBlock.classList.remove('hidden');
+        } else {
+            courierBlock.classList.remove('hidden');
+            pickupBlock.classList.add('hidden');
+        }
+    }
+}
+
+// ==========================================
+// 🧭 НАВИГАЦИЯ
+// ==========================================
 function showCatalog() { switchView('catalog'); }
 function showCart() { switchView('cart'); }
+
 function switchView(viewName) {
     const catalogView = document.getElementById('catalog-view');
     const cartView = document.getElementById('cart-view');
@@ -142,7 +206,9 @@ function switchView(viewName) {
     }
 }
 
-// --- ЗАГРУЗКА ---
+// ==========================================
+// 📦 ТОВАРЫ И КОРЗИНА
+// ==========================================
 async function loadProducts() {
     try {
         if (IS_LOCAL_MODE) {
@@ -156,7 +222,6 @@ async function loadProducts() {
     } catch (e) { console.error("Ошибка загрузки товаров", e); }
 }
 
-// --- КОРЗИНА (ЛОКАЛЬНАЯ) ---
 function changeQty(itemId, delta) {
     tg.HapticFeedback.selectionChanged();
 
@@ -179,9 +244,7 @@ function changeQty(itemId, delta) {
         state.cart.push({ id: itemId, qty: newQty });
     }
 
-    // 🔥 Сохраняем в память телефона
     localStorage.setItem('myAppCart', JSON.stringify(state.cart));
-
     calculateTotals();
     updateCartUI();    
     
@@ -197,35 +260,80 @@ function removeItem(itemId) {
     if (item) changeQty(itemId, -item.qty);
 }
 
-// 🔥 ОФОРМЛЕНИЕ ЗАКАЗА 🔥
+// ==========================================
+// 🚀 ОФОРМЛЕНИЕ ЗАКАЗА (С ВАЛИДАЦИЕЙ И АНИМАЦИЕЙ)
+// ==========================================
 async function submitOrder() {
-    const name = document.getElementById('name').value;
-    const phone = document.getElementById('phone').value;
-    const address = document.getElementById('address').value;
+    // 1. Сброс старых ошибок
+    document.querySelectorAll('.input-error').forEach(el => el.classList.remove('input-error'));
+
+    // 2. Сбор данных
+    const nameInput = document.getElementById('name');
+    const phoneInput = document.getElementById('phone');
     const deliveryType = document.getElementById('delivery-type').value;
     const comment = document.getElementById('comment').value;
+    const dateInput = document.getElementById('custom-date');
+    const dateDisplay = document.getElementById('date-display');
 
-    const rawDate = document.getElementById('custom-date').value;
+    const streetInput = document.getElementById('address-street');
+    const houseInput = document.getElementById('address-house');
     
-    if (!rawDate && !IS_LOCAL_MODE) return tg.showAlert("Выберите дату доставки!");
-    if (!state.cart.length) return tg.showAlert("Корзина пуста!");
+    // 3. 🛡️ ВАЛИДАЦИЯ
+    let errors = [];
 
-    const dateVal = rawDate ? formatSmartDate(rawDate) : '';
+    // Корзина
+    if (state.cart.length === 0) {
+        return tg.showAlert("Корзина пуста 🛒");
+    }
+
+    // Обязательные поля
+    if (!nameInput.value.trim()) errors.push(nameInput);
     
+    // Телефон: не пустой и достаточной длины (формат: +7 (XXX) XXX XX XX - это 18 символов)
+    // Проверим хотя бы наличие цифр > 10
+    const rawPhone = phoneInput.value.replace(/\D/g, '');
+    if (!phoneInput.value.trim() || rawPhone.length < 11) errors.push(phoneInput); 
+    
+    // Дата
+    if (!dateInput.value) errors.push(dateDisplay); 
+
+    // Адрес (только если Курьер)
+    if (deliveryType === 'Курьерская доставка') {
+        if (!streetInput.value.trim()) errors.push(streetInput);
+        if (!houseInput.value.trim()) errors.push(houseInput);
+    }
+
+    // Если есть ошибки
+    if (errors.length > 0) {
+        errors.forEach(field => field.classList.add('input-error'));
+        // Скролл к первой ошибке
+        errors[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        tg.HapticFeedback.notificationOccurred('error');
+        return; 
+    }
+
+    // 4. Подготовка данных
+    let finalAddress = "";
+    if (deliveryType === 'Курьерская доставка') {
+        finalAddress = `${streetInput.value.trim()}, д. ${houseInput.value.trim()}`;
+    } else {
+        finalAddress = "Самовывоз (ул. Предпортовая, д. 10)";
+    }
+    const dateVal = formatSmartDate(dateInput.value);
+
+    // Локальный режим
     if (IS_LOCAL_MODE) {
-        tg.showAlert(`🔶 [LOCAL] Заказ оформлен!\n📅 Дата: ${dateVal}`);
-        state.cart = [];
-        calculateTotals();
-        updateCartUI();
-        renderProducts();
-        showCatalog();
+        showSuccessModal("TEST-ORDER-001");
         return;
     }
 
-    if (!name || !phone || !address) return tg.showAlert("Заполните Имя, Телефон и Адрес");
-
-    tg.MainButton.showProgress();
-
+    // 5. ⏳ АНИМАЦИЯ ЗАГРУЗКИ
+    const btn = document.querySelector('.btn-main');
+    const originalBtnText = btn.innerText;
+    
+    btn.innerText = "Оформляю..."; 
+    btn.classList.add('btn-loading'); 
+    
     try {
         const res = await fetch(`${API_URL}/api/action`, {
             method: 'POST',
@@ -235,9 +343,12 @@ async function submitOrder() {
                 userId: userId,
                 cart: state.cart, 
                 orderDetails: {
-                    name, phone, address, deliveryType,
+                    name: nameInput.value, 
+                    phone: phoneInput.value, 
+                    address: finalAddress,
+                    deliveryType,
                     deliveryDate: dateVal,
-                    deliveryRaw: rawDate, 
+                    deliveryRaw: dateInput.value, 
                     comment
                 }
             })
@@ -246,28 +357,60 @@ async function submitOrder() {
         const data = await res.json();
         
         if (data.status === 'success') {
-            tg.showAlert(data.message);
-            // Очищаем корзину и память
+            tg.HapticFeedback.notificationOccurred('success');
+            // 6. ✅ УСПЕХ: Открываем модалку
+            showSuccessModal(data.orderId);
+            
+            // Очистка данных
             state.cart = []; 
             localStorage.removeItem('myAppCart');
             calculateTotals();
             updateCartUI();
-            tg.close();
         } else {
-            tg.showAlert("Ошибка: " + data.message);
+            throw new Error(data.message);
         }
     } catch (e) {
-        tg.showAlert("Сбой соединения (Network Error)");
-        console.error(e);
-    } finally {
-        tg.MainButton.hideProgress();
+        tg.HapticFeedback.notificationOccurred('error');
+        tg.showAlert("Ошибка: " + e.message); 
+        // Возвращаем кнопку при ошибке
+        btn.innerText = originalBtnText;
+        btn.classList.remove('btn-loading');
     }
+}
+
+// ==========================================
+// 🎨 UI: МОДАЛЬНОЕ ОКНО И СБРОС
+// ==========================================
+function showSuccessModal(orderId) {
+    const modal = document.getElementById('success-modal');
+    const msg = document.getElementById('modal-msg');
+    
+    if (msg) msg.innerHTML = `Ваш заказ <b>${orderId}</b> успешно принят.`;
+    if (modal) modal.classList.add('visible');
+}
+
+function resetApp() {
+    const modal = document.getElementById('success-modal');
+    if (modal) modal.classList.remove('visible');
+    
+    // Сброс кнопки
+    const btn = document.querySelector('.btn-main');
+    if (btn) {
+        btn.innerText = "Оформить заказ";
+        btn.classList.remove('btn-loading');
+    }
+
+    // Очистка полей (комментарий и дата)
+    const comment = document.getElementById('comment');
+    if (comment) comment.value = "";
+    
+    // Переход в каталог
+    showCatalog();
 }
 
 function calculateTotals() {
     let totalItemsAmount = 0;
     let totalQty = 0;
-    
     state.cart.forEach(item => {
         const product = state.products.find(p => p.id === item.id);
         if (product) {
@@ -275,7 +418,6 @@ function calculateTotals() {
             totalQty += item.qty;
         }
     });
-
     state.totals = {
         totalItemsAmount,
         deliveryCost: 0,
@@ -300,6 +442,9 @@ function updateCartUI() {
     }
 }
 
+// ==========================================
+// 🎨 РЕНДЕРИНГ
+// ==========================================
 function renderProducts() {
     const container = document.getElementById('product-list');
     if (!container) return;
@@ -362,17 +507,17 @@ function renderCart() {
                         <div class="cart-item-name">${product.name}</div>
                         <div class="cart-item-description">${product.description || ''}</div>
                     </div>
-                    <div class="cart-item-price">${lineTotal} ₽</div>
+                    <div class="cart-counter">
+                        <div class="cart-item-price">${lineTotal} ₽</div>
+                        <div class="qty-control-cart">
+                            <button class="btn-qty" onclick="changeQty('${item.id}', -1)">−</button>
+                            <span class="qty-val">${item.qty}</span>
+                            <button class="btn-qty" onclick="changeQty('${item.id}', 1)">+</button>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="cart-counter">
-                <div class="qty-control-cart">
-                    <button class="btn-qty" onclick="changeQty('${item.id}', -1)">−</button>
-                    <span class="qty-val">${item.qty}</span>
-                    <button class="btn-qty" onclick="changeQty('${item.id}', 1)">+</button>
-                </div>
-                <span class="remove-item-btn" onclick="removeItem('${item.id}')">Удалить</span>
-            </div>
+
         </div>`;
     }).join('');
 }
@@ -381,6 +526,8 @@ function updatePrettyDate(dateInput) {
     const displayInput = document.getElementById('date-display');
     const rawDate = dateInput.value;
     displayInput.value = rawDate ? formatSmartDate(rawDate) : '';
+    // Убираем ошибку, если она была
+    if (displayInput.classList.contains('input-error')) displayInput.classList.remove('input-error');
 }
 
 function formatSmartDate(isoDateString) {
@@ -391,9 +538,12 @@ function formatSmartDate(isoDateString) {
     return `${weekDays[dateObj.getDay()]}, ${dateObj.getDate()} ${monthsGenitive[dateObj.getMonth()]}`;
 }
 
+// Экспорт
 window.updatePrettyDate = updatePrettyDate;
 window.removeItem = removeItem;
 window.changeQty = changeQty;
 window.submitOrder = submitOrder;
 window.showCatalog = showCatalog;
 window.showCart = showCart;
+window.toggleDeliveryFields = toggleDeliveryFields;
+window.resetApp = resetApp;

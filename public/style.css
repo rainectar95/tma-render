@@ -266,6 +266,7 @@
         /* justify-content: space-between; */
         align-items: center;
         padding: 10px 0;
+        flex: 1;
     }
 
     .card-item-block {
@@ -307,16 +308,19 @@
 
     .cart-counter {
         display: flex;
-        flex-direction: column;
-        width: 30%;
+        flex-direction: row;
+        flex: 1 1 auto;
+        justify-content: space-between;
         align-items: center;
         height: 100%;
         gap: 0.5rem;
+        padding-block: 0.5rem;
 
     }
 
     .remove-item-btn {
         overflow: hidden;
+        display: none;
         visibility: hidden;
         font-size: 0.75rem;
         /* background-color: var(--bg-card-img); */
@@ -334,7 +338,7 @@
         justify-content: space-between;
         background-color: var(--bg-transperent);
         border-radius: 22rem;
-        width: 100%;
+        width: 10rem;
         color: var(--text-color);
         height: 2.5rem;
     }
@@ -599,4 +603,133 @@
 }
 
 
+/* --- 🔴 1. Валидация полей --- */
+.input-error {
+    border: 2px solid #ff3b30 !important; /* Красная обводка iOS */
+    background-color: #fff5f5 !important;
+    transition: all 0.3s ease;
+}
 
+/* --- ⏳ 2. Анимация кнопки (Скелетон) --- */
+.btn-loading {
+    background-color: #e0e0e0 !important;
+    color: #888 !important;
+    cursor: not-allowed;
+    position: relative;
+    overflow: hidden;
+    pointer-events: none; /* Блокируем клики */
+}
+
+/* Эффект блика (Shimmer) */
+.btn-loading::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.4),
+        transparent
+    );
+    animation: loading-shimmer 1.5s infinite;
+}
+
+@keyframes loading-shimmer {
+    100% { left: 100%; }
+}
+
+/* --- ✅ 3. Модальное окно успеха --- */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6); /* Затемнение фона */
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(4px); /* Размытие фона */
+}
+
+.modal-overlay.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.modal-content {
+    background: white;
+    width: 85%;
+    max-width: 320px;
+    padding: 25px;
+    border-radius: 20px;
+    text-align: center;
+    transform: scale(0.8);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Эффект пружины */
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+
+.modal-overlay.visible .modal-content {
+    transform: scale(1);
+}
+
+.modal-icon {
+    width: 60px;
+    height: 60px;
+    background: #4cd964; /* Зеленый */
+    border-radius: 50%;
+    margin: 0 auto 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 30px;
+}
+
+.modal-title {
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #333;
+}
+
+.modal-text {
+    font-size: 15px;
+    color: #666;
+    margin-bottom: 25px;
+    line-height: 1.4;
+}
+
+.modal-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.btn-modal-primary {
+    background-color: #ffa500;
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 10px;
+    font-weight: bold;
+    font-size: 16px;
+    width: 100%;
+    cursor: pointer;
+}
+
+.btn-modal-secondary {
+    background-color: transparent;
+    color: #888;
+    border: none;
+    padding: 10px;
+    font-size: 15px;
+    cursor: pointer;
+}

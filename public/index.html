@@ -23,7 +23,7 @@
                 <div id="product-list" class="product-grid"></div>
             </div>
 
-            <div id="cart-view" class="hidden">
+            <div id="cart-view" class="hidden"> 
                 <div class="cart-section">
                     <h2 class="section-title">Ваш заказ</h2>
                     <div id="cart-items-list"></div>
@@ -33,7 +33,7 @@
                     <h2 class="section-title">Контактные данные</h2>
                     <div class="order-form">
                         <input type="text" id="name" placeholder="Ваше имя" required class="input-field">
-                        <input type="tel" id="phone" placeholder="Телефон" required class="input-field mt-2">
+                        <input type="tel" id="phone" placeholder="Номер для связи" required class="input-field mt-2">
                     </div>
                 </div>
 
@@ -48,7 +48,7 @@
                         <div id="courier-fields" class="mt-2">
                             <div class="address-row">
                                 <div class="input-wrapper wide">
-                                    <input type="text" id="address-street" class="input-field" placeholder="Улица (напр. Садовая)">
+                                    <input type="text" id="address-street" class="input-field" placeholder="Улица, проспект">
                                 </div>
                                 <div class="input-wrapper narrow">
                                     <input type="text" id="address-house" class="input-field" placeholder="Дом">
@@ -80,12 +80,6 @@
                 </div>
                 <button class="btn-main" onclick="submitOrder()">Оформить заказ</button>
             </div>
-
-                <div class="cart-summary">
-                    <div class="summary-row total"><span>Итого:</span><span id="total-price">0 ₽</span></div>
-                </div>
-                <button class="btn-main" onclick="submitOrder()">Оформить заказ</button>
-            </div>
         </div>
 
         <div class="bottom-nav">
@@ -105,9 +99,20 @@
         </div>
 
     </div>
+    <div id="success-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-icon">✓</div>
+            <h3 class="modal-title">Готово!</h3>
+            <p class="modal-text" id="modal-msg">Ваш заказ оформлен</p>
+            
+            <div class="modal-buttons">
+                <button class="btn-modal-primary" onclick="resetApp()">Оформить еще</button>
+                <button class="btn-modal-secondary" onclick="tg.close()">Выйти</button>
+            </div>
+        </div>
+    </div>
     <script src="script.js"></script>
 </body>
 
 
 </html>
-
