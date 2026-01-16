@@ -274,8 +274,9 @@ async function submitOrder() {
                 userId: userId,
                 orderDetails: {
                     name, phone, address, deliveryType,
-                    deliveryDate: dateVal, // Красивый текст (для человека)
-                    deliveryRaw: rawDate,  // <--- ВАЖНО: Добавили сырую дату (для сервера)
+                    deliveryDate: dateVal,
+                    deliveryRaw: rawDate,
+                    creationTime: deviceTime,  // <--- ВАЖНО: Добавили сырую дату (для сервера)
                     comment
                 }
             })
@@ -448,6 +449,7 @@ window.changeQty = changeQty;
 window.submitOrder = submitOrder;
 window.showCatalog = showCatalog;
 window.showCart = showCart;
+
 
 
 
