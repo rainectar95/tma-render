@@ -6,7 +6,7 @@ tg.expand();
 // ⚙️ НАСТРОЙКИ
 // ==========================================
 const IS_LOCAL_MODE = false;
-const API_URL = 'https://script.google.com/macros/s/AKfycbx.../exec'; // Вставьте вашу ссылку
+const API_URL = 'https://tma-render.onrender.com'; // Вставьте вашу ссылку
 const userId = tg.initDataUnsafe?.user?.id || 'test_user_777';
 
 const MOCK_PRODUCTS = [
@@ -548,3 +548,4 @@ window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 
 window.resetApp = resetApp;
+
