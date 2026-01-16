@@ -3,10 +3,12 @@ const { google } = require('googleapis');
 const cors = require('cors');
 const NodeCache = require('node-cache');
 const path = require('path');
+// Подключаем библиотеку для бота
+const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
 const app = express();
-// 🔥 КЭШ = 5 секунд. Данные будут обновляться почти мгновенно.
+// 🔥 КЭШ = 5 секунд. Данные обновляются быстро.
 const cache = new NodeCache({ stdTTL: 5 }); 
 
 app.use(cors());
@@ -17,9 +19,16 @@ app.use(express.static(path.join(__dirname, 'public')));
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_PRODUCTS = "Товары";
 const SHEET_CLIENTS = "Клиенты";
-// Лист "Корзины" больше не нужен, мы храним её в телефоне
 
-// --- АВТОРИЗАЦИЯ ---
+// --- НАСТРОЙКА TELEGRAM БОТА ---
+// Берем токен и ID из настроек Render (или используем заглушку, если не настроено)
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'ВАШ_ТОКЕН';
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || 'ВАШ_ID';
+
+// Запускаем бота (polling: false, так как мы только отправляем сообщения)
+const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
+
+// --- АВТОРИЗАЦИЯ GOOGLE ---
 const auth = new google.auth.GoogleAuth({
     credentials: {
         client_email: process.env.GOOGLE_CLIENT_EMAIL,
@@ -337,6 +346,40 @@ app.post('/api/action', async (req, res) => {
             await updateCustomerDatabase({ name: data.orderDetails.name, phone: data.orderDetails.phone, address: data.orderDetails.address, items: productsString });
             
             cache.del("products");
+
+            // 👇 ОТПРАВКА УВЕДОМЛЕНИЙ 👇
+            
+            // 1. Сообщение КЛИЕНТУ
+            const userMessage = `✅ <b>Заказ ${orderId} принят!</b>\n\n` +
+                                `📦 <b>Состав:</b>\n${itemsList.join('\n')}\n\n` +
+                                `💰 <b>Итого:</b> ${totals.finalTotal} ₽\n` +
+                                `📍 <b>Адрес:</b> ${data.orderDetails.address}\n\n` +
+                                `<i>Менеджер скоро свяжется с вами.</i>`;
+            
+            try {
+                await bot.sendMessage(userId, userMessage, { parse_mode: 'HTML' });
+            } catch (err) {
+                console.error("Не удалось отправить сообщение клиенту:", err.message);
+            }
+
+            // 2. Сообщение АДМИНУ
+            const adminMessage = `🚨 <b>НОВЫЙ ЗАКАЗ!</b>\n` +
+                                 `#${orderId}\n\n` +
+                                 `👤 <b>Клиент:</b> ${data.orderDetails.name}\n` +
+                                 `📞 <b>Телефон:</b> ${formattedPhone}\n` +
+                                 `📍 <b>Адрес:</b> ${data.orderDetails.address}\n` +
+                                 `🚚 <b>Тип:</b> ${data.orderDetails.deliveryType}\n\n` +
+                                 `🛒 <b>Товары:</b>\n${itemsList.join('\n')}\n\n` +
+                                 `💰 <b>Сумма:</b> ${totals.finalTotal} ₽\n` +
+                                 `📝 <b>Коммент:</b> ${data.orderDetails.comment}`;
+
+            try {
+                await bot.sendMessage(ADMIN_CHAT_ID, adminMessage, { parse_mode: 'HTML' });
+            } catch (err) {
+                console.error("Не удалось отправить сообщение админу:", err.message);
+            }
+            // 👆 КОНЕЦ УВЕДОМЛЕНИЙ 👆
+
             res.json({ status: 'success', orderId, message: `Заказ ${orderId} оформлен!` });
         }
     } catch (e) {
