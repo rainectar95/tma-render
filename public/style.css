@@ -119,7 +119,6 @@
         width: 90%;
         aspect-ratio: 1 / 1;
         object-fit: contain;
-        mix-blend-mode: multiply;
     }
 
     .img-frame {
@@ -539,3 +538,4 @@
         border-radius: 2rem;
 
     }
+
