@@ -15,7 +15,7 @@
         --text-secondary: #777777;
         --bg-transperent: #00000010;
         --border-radius: 16px;
-        --bg-card-img: #00000008;
+        --bg-card-img: #EDEDED;
 
     }
 
@@ -537,4 +537,5 @@
         width: 1.25rem;
         aspect-ratio: 1 / 1;
         border-radius: 2rem;
+
     }
