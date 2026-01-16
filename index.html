@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Магазин</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="loader" class="loader-container">
+        <div class="spinner"></div>
+    </div>
+
+    <div id="app" style="display: none;">
+        <header class="header">
+            <h1 id="page-title">Каталог продукции</h1>
+        </header>
+        <div class="content-container">
+            <div id="catalog-view">
+                <div id="product-list" class="product-grid"></div>
+            </div>
+
+            <div id="cart-view" class="hidden"> 
+                <div class="cart-section">
+                    <h2 class="section-title">Ваш заказ</h2>
+                    <div id="cart-items-list"></div>
+                </div>
+
+                <div class="cart-section">
+                    <h2 class="section-title">Контактные данные</h2>
+                    <div class="order-form">
+                        <input type="text" id="name" placeholder="Ваше имя" required class="input-field">
+                        <input type="tel" id="phone" placeholder="Номер для связи" required class="input-field mt-2">
+                    </div>
+                </div>
+
+                <div class="cart-section">
+                    <h2 class="section-title">Способ получения</h2>
+                    <div class="order-form">
+                        <select id="delivery-type" class="input-field" onchange="toggleDeliveryFields()">
+                            <option value="Курьерская доставка" selected>Курьерская доставка</option>
+                            <option value="Самовывоз">Самовывоз</option>
+                        </select>
+
+                        <div id="courier-fields" class="mt-2">
+                            <div class="address-row">
+                                <div class="input-wrapper wide">
+                                    <input type="text" id="address-street" class="input-field" placeholder="Улица, проспект">
+                                </div>
+                                <div class="input-wrapper narrow">
+                                    <input type="text" id="address-house" class="input-field" placeholder="Дом">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="pickup-info" class="pickup-block hidden mt-2">
+                            <div class="pickup-label">Заказ можно забрать по адресу:</div>
+                            <div class="pickup-address">ул. Предпортовая, д. 10</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cart-section">
+                    <h2 class="section-title">Детали заказа</h2>
+                    <div class="order-form">
+                        <div class="custom-date-picker">
+                            <input type="text" id="date-display" class="input-field" placeholder="Выберите дату доставки" readonly>
+                            <img class="icon-date" src="./img/date.svg" alt="calendar">
+                            <input type="date" id="custom-date" onchange="updatePrettyDate(this)">
+                        </div>
+                        <textarea id="comment" placeholder="Комментарий к заказу" rows="2" class="input-field mt-2"></textarea>
+                    </div>
+                </div>
+
+                <div class="cart-summary">
+                    <div class="summary-row total"><span>Итого:</span><span id="total-price">0 ₽</span></div>
+                </div>
+                <button class="btn-main" onclick="submitOrder()">Оформить заказ</button>
+            </div>
+        </div>
+
+        <div class="bottom-nav">
+            <button class="nav-btn active" id="nav-catalog" onclick="showCatalog()">
+                <div class="icon-catalog">
+                </div>
+                <span>Каталог</span>
+            </button>
+            <button class="nav-btn" id="nav-cart" onclick="showCart()">
+                <div class="icon-container">
+                    <div class="icon-cart"></div>
+                    <span>Корзина</span>
+                </div>
+                <span id="cart-badge" class="hidden">0</span>
+
+            </button>
+        </div>
+
+    </div>
+    <div id="success-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-icon">✓</div>
+            <h3 class="modal-title">Готово!</h3>
+            <p class="modal-text" id="modal-msg">Ваш заказ оформлен</p>
+            
+            <div class="modal-buttons">
+                <button class="btn-modal-primary" onclick="resetApp()">Оформить еще</button>
+                <button class="btn-modal-secondary" onclick="tg.close()">Выйти</button>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+
+</html>
