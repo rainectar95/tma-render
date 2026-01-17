@@ -752,3 +752,36 @@
     transform: scale(0.98);
 }
 
+/* --- Тултип (Уведомление сверху) --- */
+.top-tooltip {
+    position: fixed;
+    top: -100px; /* Спрятан сверху */
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: var(--bg-card-img);
+    color: var(--text-color);
+    padding: 1rem 1.5rem;
+    border-radius: 99rem;
+    font-size: 1rem;
+    font-weight: 600;
+    z-index: 2000;
+    transition: top 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    white-space: nowrap;
+    max-width: 90%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+}
+
+.top-tooltip.visible {
+    top: 20px; /* Показываем */
+}
+
+.top-tooltip.error {
+    background-color: #ff3b30; /* Красный для ошибок */
+}
+
+.top-tooltip.success {
+    background-color: #4cd964; /* Зеленый для успеха */
+}
+
