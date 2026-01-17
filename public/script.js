@@ -431,7 +431,7 @@ function renderCart() {
         const opacityStyle = isOutOfStock ? 'style="opacity: 0.6; pointer-events: none;"' : '';
         
         const priceHtml = isOutOfStock 
-            ? '<div class="cart-item-price" style="color: #ff3b30; font-size: 0.9rem;">Нет в наличии</div>' 
+            ? '<div class="cart-item-price" style="color: #ff3b30; font-size: 0.75rem;">Нет в наличии</div>' 
             : `<div class="cart-item-price">${p.price * item.qty} ₽</div>`;
 
         const controlsHtml = isOutOfStock 
@@ -479,16 +479,13 @@ function formatSmartDate(iso) {
 let updateInterval;
 
 function startLiveUpdates() {
-    // Запускаем проверку каждые 10 секунд
+    // Запускаем проверку каждые 2 секунды
     updateInterval = setInterval(async () => {
-        // Если открыта корзина или модальное окно — не обновляем, чтобы не сбить пользователя
-        const cartHidden = document.getElementById('cart-view').classList.contains('hidden');
         const modalVisible = document.getElementById('success-modal').classList.contains('visible');
-        
-        if (!cartHidden || modalVisible) return;
+        if (modalVisible) return;
 
         await updateStockOnly();
-    }, 2000); // 10000 мс = 10 секунд
+    }, 2000); 
 }
 
 async function updateStockOnly() {
@@ -503,20 +500,18 @@ async function updateStockOnly() {
         const newProducts = data.products;
         let somethingChanged = false;
 
-        // 1. Пробегаемся по новым данным и сравниваем со старыми
+        // 1. Сравниваем данные
         newProducts.forEach(newP => {
             const oldP = state.products.find(p => p.id === newP.id);
             if (!oldP) return;
 
-            // Логика уведомлений
             if (oldP.stock !== newP.stock) {
                 somethingChanged = true;
                 
-                // Если товар закончился (было > 0, стало 0)
+                // Уведомления
                 if (oldP.stock > 0 && newP.stock === 0) {
                     showTopTooltip(`Товар "${newP.name}" закончился 😢`, "error");
                 }
-                // Если товар появился (было 0, стало > 0)
                 else if (oldP.stock === 0 && newP.stock > 0) {
                     showTopTooltip(`Товар "${newP.name}" снова в наличии! 🎉`, "success");
                 }
@@ -524,10 +519,10 @@ async function updateStockOnly() {
         });
 
         if (somethingChanged) {
-            // 2. Обновляем данные в памяти
+            // 2. Обновляем память
             state.products = newProducts;
 
-            // 3. Актуализируем корзину (обрезаем кол-во, если на складе стало меньше)
+            // 3. Корректируем корзину (если купили больше, чем есть - уменьшаем)
             state.cart.forEach(item => {
                 const p = state.products.find(x => x.id === item.id);
                 if (p && p.stock > 0 && item.qty > p.stock) {
@@ -535,17 +530,17 @@ async function updateStockOnly() {
                 }
             });
 
-            // 4. Пересчитываем деньги
+            // 4. 🔥 ВАЖНО: Пересчитываем итоги (чтобы цена перестала быть 0)
             calculateTotals();
             updateCartUI();
 
-            // 5. ПЕРЕРИСОВЫВАЕМ ТЕКУЩИЙ ЭКРАН (Будь то каталог или корзина)
+            // 5. Перерисовываем экран
             const isCartHidden = document.getElementById('cart-view').classList.contains('hidden');
             
             if (isCartHidden) {
-                renderProducts(); // Мы в каталоге
+                renderProducts(); // Обновляем каталог
             } else {
-                renderCart();     // Мы в корзине (обновится прозрачность и надписи)
+                renderCart();     // Обновляем корзину (тут появятся цены и кнопки)
             }
         }
 
@@ -607,6 +602,7 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
 
 
 
