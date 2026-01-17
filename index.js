@@ -16,7 +16,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ==========================================
 // ⚙️ НАСТРОЙКИ
 // ==========================================
-const ENABLE_WORK_CHAT = true; // 👈 ПЕРЕКЛЮЧАТЕЛЬ (true = писать в чат, false = тишина)
+const ENABLE_WORK_CHAT = false; // 👈 ПЕРЕКЛЮЧАТЕЛЬ (true = писать в чат, false = тишина)
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_PRODUCTS = "Товары";
@@ -404,3 +404,4 @@ app.post('/api/action', async (req, res) => {
 app.get('/ping', (req, res) => res.send('pong'));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
