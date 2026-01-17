@@ -397,7 +397,74 @@ function formatSmartDate(iso) {
     const m = ['Января','Февраля','Марта','Апреля','Мая','Июня','Июля','Августа','Сентября','Октября','Ноября','Декабря'];
     return `${['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][d.getDay()]}, ${d.getDate()} ${m[d.getMonth()]}`;
 }
+// ==========================================
+// 🔄 ЖИВОЕ ОБНОВЛЕНИЕ (POLLING)
+// ==========================================
+let updateInterval;
 
+function startLiveUpdates() {
+    // Запускаем проверку каждые 10 секунд
+    updateInterval = setInterval(async () => {
+        // Если открыта корзина или модальное окно — не обновляем, чтобы не сбить пользователя
+        const cartHidden = document.getElementById('cart-view').classList.contains('hidden');
+        const modalVisible = document.getElementById('success-modal').classList.contains('visible');
+        
+        if (!cartHidden || modalVisible) return;
+
+        await updateStockOnly();
+    }, 10000); // 10000 мс = 10 секунд
+}
+
+async function updateStockOnly() {
+    try {
+        if (IS_LOCAL_MODE) return;
+
+        // 1. Тихо запрашиваем свежие данные
+        const res = await fetch(`${API_URL}/api/get_products`);
+        const data = await res.json();
+        
+        if (!data.products) return;
+
+        // 2. Обновляем локальные данные, сохраняя количество в корзине
+        const newProducts = data.products;
+
+        // 3. Пробегаемся по карточкам и меняем только текст
+        newProducts.forEach(newP => {
+            // Находим старый продукт в памяти
+            const oldP = state.products.find(p => p.id === newP.id);
+            
+            // Если сток изменился
+            if (oldP && oldP.stock !== newP.stock) {
+                console.log(`Обновление товара ${newP.name}: ${oldP.stock} -> ${newP.stock}`);
+                oldP.stock = newP.stock; // Обновляем в памяти
+                
+                // Обновляем UI конкретной карточки
+                updateCardUI(newP);
+            }
+        });
+
+    } catch (e) {
+        console.error("Ошибка авто-обновления:", e);
+    }
+}
+
+// Функция точечного обновления одной карточки
+function updateCardUI(product) {
+    // Нам нужно найти карточку товара в HTML. 
+    // Для этого при рендере (renderProducts) нужно давать карточкам ID.
+    // Но так как у нас простой список, найдем перебором или перерисуем всё, если список небольшой.
+    
+    // В вашем случае проще вызвать renderProducts(), так как товаров мало.
+    // Но чтобы не моргало, лучше найти конкретный элемент.
+    
+    // Давайте лучше просто перерисуем каталог, если пользователь его сейчас смотрит.
+    renderProducts(); 
+}
+
+// Добавляем запуск в инициализацию
+// Найдите строчку: document.addEventListener('DOMContentLoaded', async () => { ...
+// И внутри, в самом конце перед закрывающей скобкой }, добавьте:
+// startLiveUpdates();
 window.updatePrettyDate = updatePrettyDate;
 window.removeItem = removeItem;
 window.changeQty = changeQty;
@@ -406,3 +473,4 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
