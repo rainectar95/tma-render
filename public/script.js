@@ -469,7 +469,7 @@ function renderCart() {
 
         return `
         <div class="cart-block">
-            <div class="cart-item" ${isOutOfStock ? 'style="background: #fff0f0;"' : ''}>
+            <div class="cart-item" ${isOutOfStock ? : ''}>
                 <div class="card-img-container" ${opacityStyle}>
                     <img src="${p.imageUrl}" class="cart-item-img" loading="lazy">
                 </div>
@@ -575,6 +575,7 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
 
 
 
