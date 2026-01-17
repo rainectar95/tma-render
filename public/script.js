@@ -379,12 +379,38 @@ function renderProducts() {
 function renderCart() {
     const container = document.getElementById('cart-items-list');
     if (!container) return;
-    if (!state.cart.length) return container.innerHTML = `<div class="empty-block"><p class="free-cart">Корзина пуста</p></div>`;
+
+    if (!state.cart.length) {
+        container.innerHTML = `<div class="empty-block"><p class="free-cart">Корзина пуста</p></div>`;
+        return;
+    }
     
     container.innerHTML = state.cart.map(item => {
         const p = state.products.find(x => x.id === item.id);
         if (!p) return '';
-        return `<div class="cart-block"><div class="cart-item"><div class="card-img-container"><img src="${p.imageUrl}" class="cart-item-img"></div><div class="cart-item-info"><div class="card-item-block"><div class="cart-item-name">${p.name}</div></div><div class="cart-counter"><div class="cart-item-price">${p.price * item.qty} ₽</div><div class="qty-control-cart"><button class="btn-qty" onclick="changeQty('${item.id}', -1)">−</button><span class="qty-val">${item.qty}</span><button class="btn-qty" onclick="changeQty('${item.id}', 1)">+</button></div></div></div></div></div>`;
+
+        return `
+        <div class="cart-block">
+            <div class="cart-item">
+                <div class="card-img-container">
+                    <img src="${p.imageUrl}" class="cart-item-img" loading="lazy">
+                </div>
+                <div class="cart-item-info">
+                    <div class="card-item-block">
+                        <div class="cart-item-name">${p.name}</div>
+                        <div class="cart-item-description">${p.description || ''}</div>
+                    </div>
+                    <div class="cart-counter">
+                        <div class="cart-item-price">${p.price * item.qty} ₽</div>
+                        <div class="qty-control-cart">
+                            <button class="btn-qty" onclick="changeQty('${item.id}', -1)">−</button>
+                            <span class="qty-val">${item.qty}</span>
+                            <button class="btn-qty" onclick="changeQty('${item.id}', 1)">+</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
     }).join('');
 }
 function updatePrettyDate(input) {
@@ -474,5 +500,6 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
 
 
