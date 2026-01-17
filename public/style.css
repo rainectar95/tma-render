@@ -732,4 +732,25 @@
     padding: 10px;
     font-size: 15px;
     cursor: pointer;
+
+}
+.btn-remove-cart {
+    background-color: #ff3b30; /* Красный цвет iOS */
+    color: white;
+    border: none;
+    border-radius: 22rem; /* Такой же радиус как у qty-control-cart */
+    width: 10rem;         /* Та же ширина */
+    height: 2.5rem;       /* Та же высота */
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 5px rgba(255, 59, 48, 0.3);
+}
+
+.btn-remove-cart:active {
+    background-color: #d63228;
+    transform: scale(0.98);
 }
