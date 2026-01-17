@@ -244,84 +244,71 @@ function toggleDeliveryFields() {
 }
 
 async function submitOrder() {
-    // 1. Сброс предыдущих ошибок
+    // 1. Сброс подсветки ошибок
     document.querySelectorAll('.input-error').forEach(el => el.classList.remove('input-error'));
 
-    // 2. АВТО-ЧИСТКА: Удаляем из заказа товары, которых нет в наличии (stock <= 0)
-    // Это решает проблему блокировки заказа из-за отсутствующего товара
-    const originalCount = state.cart.length;
-    state.cart = state.cart.filter(item => {
-        const p = state.products.find(x => x.id === item.id);
-        return p && p.stock > 0;
-    });
+    // 2. Проверка корзины
+    if (state.cart.length === 0) return showTopTooltip("Корзина пуста 🛒", "error");
 
-    // Если что-то удалилось, обновляем UI и пересчитываем сумму
-    if (state.cart.length !== originalCount) {
-        calculateTotals();
-        updateCartUI();
-        renderCart();
-        tg.showAlert("Некоторые товары закончились и были удалены из заказа.");
-    }
-
-    // 3. Сбор данных из полей ввода
+    // 3. Сбор данных
     const nameInput = document.getElementById('name');
     const phoneInput = document.getElementById('phone');
     const deliveryType = document.getElementById('delivery-type').value;
-    const comment = document.getElementById('comment').value;
     const dateInput = document.getElementById('custom-date');
     const streetInput = document.getElementById('address-street');
     const houseInput = document.getElementById('address-house');
-    
-    // 4. Валидация
-    let errors = [];
 
-    // Проверка корзины
-    if (state.cart.length === 0) {
-        return tg.showAlert("Корзина пуста 🛒");
+    // 4. УМНАЯ ВАЛИДАЦИЯ
+    let missingFields = []; // Сюда будем писать названия пустых полей
+
+    if (!nameInput.value.trim()) {
+        missingFields.push("имя");
+        nameInput.classList.add('input-error');
     }
 
-    // Проверка полей
-    if (!nameInput.value.trim()) errors.push(nameInput);
-    
-    // Телефон должен содержать минимум 11 цифр (7XXXXXXXXXX)
+    // Телефон: проверяем длину цифр
     if (!phoneInput.value.trim() || phoneInput.value.replace(/\D/g, '').length < 11) {
-        errors.push(phoneInput); 
+        missingFields.push("номер телефона");
+        phoneInput.classList.add('input-error');
     }
-    
-    if (!dateInput.value) errors.push(document.getElementById('date-display')); 
 
-    // Адрес нужен только для курьера
+    if (!dateInput.value) {
+        missingFields.push("дату");
+        document.getElementById('date-display').classList.add('input-error');
+    }
+
     if (deliveryType === 'Курьерская доставка') {
-        if (!streetInput.value.trim()) errors.push(streetInput);
-        if (!houseInput.value.trim()) errors.push(houseInput);
+        if (!streetInput.value.trim()) {
+            missingFields.push("адрес (улицу)");
+            streetInput.classList.add('input-error');
+        }
+        if (!houseInput.value.trim()) {
+            missingFields.push("дом");
+            houseInput.classList.add('input-error');
+        }
     }
 
-    // Если есть ошибки — подсвечиваем и скроллим к первой
-    if (errors.length > 0) {
-        errors.forEach(field => field.classList.add('input-error'));
-        errors[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // ЕСЛИ ЕСТЬ ОШИБКИ
+    if (missingFields.length > 0) {
         tg.HapticFeedback.notificationOccurred('error');
-        return; 
+        // Формируем строку: "Введите: имя, номер телефона"
+        const msg = "Введите: " + missingFields.join(', ');
+        showTopTooltip(msg, "error");
+        return;
     }
 
-    // 5. Формирование финальных данных
-    let finalAddress = "";
-    if (deliveryType === 'Курьерская доставка') {
-        finalAddress = `${streetInput.value.trim()}, д. ${houseInput.value.trim()}`;
-    } else {
-        finalAddress = "Самовывоз (ул. Предпортовая, д. 10)";
-    }
+    // ... ДАЛЕЕ ВАШ КОД ОТПРАВКИ (finalAddress, fetch и т.д.) ...
+    // Скопируйте старую логику отправки сюда
+    let finalAddress = deliveryType === 'Курьерская доставка' ? `${streetInput.value.trim()}, д. ${houseInput.value.trim()}` : "Самовывоз (ул. Предпортовая, д. 10)";
     const dateVal = formatSmartDate(dateInput.value);
+    const comment = document.getElementById('comment').value;
 
-    // 6. UI: Блокировка кнопки и показ загрузки
     const btn = document.querySelector('.btn-main');
     const originalBtnText = btn.innerText;
-    
     btn.innerText = "Оформляю..."; 
     btn.classList.add('btn-loading'); 
-    
+
     try {
-        // 7. Отправка запроса на сервер
         const res = await fetch(`${API_URL}/api/action`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -342,33 +329,20 @@ async function submitOrder() {
         });
 
         const data = await res.json();
-        
-        // 8. Обработа ответа
         if (data.status === 'success') {
             tg.HapticFeedback.notificationOccurred('success');
-            
-            // Показываем модалку успеха
             showSuccessModal(data.orderId);
-            
-            // Очищаем корзину и локальное хранилище
             state.cart = []; 
             localStorage.removeItem('myAppCart');
             calculateTotals();
             updateCartUI();
-            
-            // При закрытии модалки (resetApp) кнопка вернется в норму
         } else {
-            // Если сервер вернул ошибку (например, "товар закончился")
             throw new Error(data.message);
         }
     } catch (e) {
         tg.HapticFeedback.notificationOccurred('error');
-        tg.showAlert("Ошибка: " + e.message); 
-        
-        // Обновляем каталог, чтобы пользователь увидел актуальные остатки
+        showTopTooltip("Ошибка: " + e.message, "error");
         await loadProducts();
-        
-        // Возвращаем кнопку в исходное состояние
         btn.innerText = originalBtnText;
         btn.classList.remove('btn-loading');
     }
@@ -526,31 +500,53 @@ async function updateStockOnly() {
         
         if (!data.products) return;
 
-        // 1. Обновляем весь массив продуктов в памяти актуальными данными
-        state.products = data.products;
+        const newProducts = data.products;
+        let somethingChanged = false;
 
-        // 2. Синхронизируем корзину с новыми данными
-        // Удаляем из корзины товары, которые вообще исчезли из прайса (если такие есть)
-        state.cart = state.cart.filter(item => state.products.some(p => p.id === item.id));
+        // 1. Пробегаемся по новым данным и сравниваем со старыми
+        newProducts.forEach(newP => {
+            const oldP = state.products.find(p => p.id === newP.id);
+            if (!oldP) return;
 
-        // 3. Проверяем, не превышает ли количество в корзине новый остаток
-        state.cart.forEach(item => {
-            const p = state.products.find(x => x.id === item.id);
-            if (p && p.stock > 0 && item.qty > p.stock) {
-                item.qty = p.stock;
+            // Логика уведомлений
+            if (oldP.stock !== newP.stock) {
+                somethingChanged = true;
+                
+                // Если товар закончился (было > 0, стало 0)
+                if (oldP.stock > 0 && newP.stock === 0) {
+                    showTopTooltip(`Товар "${newP.name}" закончился 😢`, "error");
+                }
+                // Если товар появился (было 0, стало > 0)
+                else if (oldP.stock === 0 && newP.stock > 0) {
+                    showTopTooltip(`Товар "${newP.name}" снова в наличии! 🎉`, "success");
+                }
             }
         });
 
-        // 4. Пересчитываем итоги (это исправит цену 0 в корзине)
-        calculateTotals();
-        updateCartUI();
+        if (somethingChanged) {
+            // 2. Обновляем данные в памяти
+            state.products = newProducts;
 
-        // 5. Перерисовываем текущий экран
-        const isCartHidden = document.getElementById('cart-view').classList.contains('hidden');
-        if (isCartHidden) {
-            renderProducts();
-        } else {
-            renderCart();
+            // 3. Актуализируем корзину (обрезаем кол-во, если на складе стало меньше)
+            state.cart.forEach(item => {
+                const p = state.products.find(x => x.id === item.id);
+                if (p && p.stock > 0 && item.qty > p.stock) {
+                    item.qty = p.stock;
+                }
+            });
+
+            // 4. Пересчитываем деньги
+            calculateTotals();
+            updateCartUI();
+
+            // 5. ПЕРЕРИСОВЫВАЕМ ТЕКУЩИЙ ЭКРАН (Будь то каталог или корзина)
+            const isCartHidden = document.getElementById('cart-view').classList.contains('hidden');
+            
+            if (isCartHidden) {
+                renderProducts(); // Мы в каталоге
+            } else {
+                renderCart();     // Мы в корзине (обновится прозрачность и надписи)
+            }
         }
 
     } catch (e) {
@@ -571,6 +567,34 @@ function updateCardUI(product) {
     renderProducts(); 
 }
 
+// ==========================================
+// 🔔 УВЕДОМЛЕНИЯ (ТУЛТИПЫ)
+// ==========================================
+let tooltipTimer;
+
+function showTopTooltip(text, type = 'info') {
+    const tooltip = document.getElementById('top-tooltip');
+    if (!tooltip) return;
+
+    // Убираем старые классы типа
+    tooltip.classList.remove('error', 'success');
+    
+    // Добавляем новые
+    if (type === 'error') tooltip.classList.add('error');
+    if (type === 'success') tooltip.classList.add('success');
+
+    tooltip.innerText = text;
+    tooltip.classList.add('visible');
+
+    // Сброс таймера, если сообщение пришло быстро одно за другим
+    if (tooltipTimer) clearTimeout(tooltipTimer);
+
+    // Прячем через 3 секунды
+    tooltipTimer = setTimeout(() => {
+        tooltip.classList.remove('visible');
+    }, 3000);
+}
+
 // Добавляем запуск в инициализацию
 // Найдите строчку: document.addEventListener('DOMContentLoaded', async () => { ...
 // И внутри, в самом конце перед закрывающей скобкой }, добавьте:
@@ -583,6 +607,7 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
 
 
 
