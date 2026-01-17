@@ -244,8 +244,26 @@ function toggleDeliveryFields() {
 }
 
 async function submitOrder() {
+    // 1. Сброс предыдущих ошибок
     document.querySelectorAll('.input-error').forEach(el => el.classList.remove('input-error'));
 
+    // 2. АВТО-ЧИСТКА: Удаляем из заказа товары, которых нет в наличии (stock <= 0)
+    // Это решает проблему блокировки заказа из-за отсутствующего товара
+    const originalCount = state.cart.length;
+    state.cart = state.cart.filter(item => {
+        const p = state.products.find(x => x.id === item.id);
+        return p && p.stock > 0;
+    });
+
+    // Если что-то удалилось, обновляем UI и пересчитываем сумму
+    if (state.cart.length !== originalCount) {
+        calculateTotals();
+        updateCartUI();
+        renderCart();
+        tg.showAlert("Некоторые товары закончились и были удалены из заказа.");
+    }
+
+    // 3. Сбор данных из полей ввода
     const nameInput = document.getElementById('name');
     const phoneInput = document.getElementById('phone');
     const deliveryType = document.getElementById('delivery-type').value;
@@ -254,16 +272,31 @@ async function submitOrder() {
     const streetInput = document.getElementById('address-street');
     const houseInput = document.getElementById('address-house');
     
+    // 4. Валидация
     let errors = [];
-    if (state.cart.length === 0) return tg.showAlert("Корзина пуста 🛒");
+
+    // Проверка корзины
+    if (state.cart.length === 0) {
+        return tg.showAlert("Корзина пуста 🛒");
+    }
+
+    // Проверка полей
     if (!nameInput.value.trim()) errors.push(nameInput);
-    if (!phoneInput.value.trim() || phoneInput.value.replace(/\D/g, '').length < 11) errors.push(phoneInput); 
+    
+    // Телефон должен содержать минимум 11 цифр (7XXXXXXXXXX)
+    if (!phoneInput.value.trim() || phoneInput.value.replace(/\D/g, '').length < 11) {
+        errors.push(phoneInput); 
+    }
+    
     if (!dateInput.value) errors.push(document.getElementById('date-display')); 
+
+    // Адрес нужен только для курьера
     if (deliveryType === 'Курьерская доставка') {
         if (!streetInput.value.trim()) errors.push(streetInput);
         if (!houseInput.value.trim()) errors.push(houseInput);
     }
 
+    // Если есть ошибки — подсвечиваем и скроллим к первой
     if (errors.length > 0) {
         errors.forEach(field => field.classList.add('input-error'));
         errors[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -271,15 +304,24 @@ async function submitOrder() {
         return; 
     }
 
-    let finalAddress = deliveryType === 'Курьерская доставка' ? `${streetInput.value.trim()}, д. ${houseInput.value.trim()}` : "Самовывоз";
+    // 5. Формирование финальных данных
+    let finalAddress = "";
+    if (deliveryType === 'Курьерская доставка') {
+        finalAddress = `${streetInput.value.trim()}, д. ${houseInput.value.trim()}`;
+    } else {
+        finalAddress = "Самовывоз (ул. Предпортовая, д. 10)";
+    }
     const dateVal = formatSmartDate(dateInput.value);
 
+    // 6. UI: Блокировка кнопки и показ загрузки
     const btn = document.querySelector('.btn-main');
     const originalBtnText = btn.innerText;
-    btn.innerText = "Проверяю склад..."; 
+    
+    btn.innerText = "Оформляю..."; 
     btn.classList.add('btn-loading'); 
     
     try {
+        // 7. Отправка запроса на сервер
         const res = await fetch(`${API_URL}/api/action`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -300,21 +342,33 @@ async function submitOrder() {
         });
 
         const data = await res.json();
+        
+        // 8. Обработа ответа
         if (data.status === 'success') {
             tg.HapticFeedback.notificationOccurred('success');
+            
+            // Показываем модалку успеха
             showSuccessModal(data.orderId);
+            
+            // Очищаем корзину и локальное хранилище
             state.cart = []; 
             localStorage.removeItem('myAppCart');
             calculateTotals();
             updateCartUI();
+            
+            // При закрытии модалки (resetApp) кнопка вернется в норму
         } else {
+            // Если сервер вернул ошибку (например, "товар закончился")
             throw new Error(data.message);
         }
     } catch (e) {
         tg.HapticFeedback.notificationOccurred('error');
-        tg.showAlert(e.message); 
-        // Если ошибка в наличии товара, обновляем список
+        tg.showAlert("Ошибка: " + e.message); 
+        
+        // Обновляем каталог, чтобы пользователь увидел актуальные остатки
         await loadProducts();
+        
+        // Возвращаем кнопку в исходное состояние
         btn.innerText = originalBtnText;
         btn.classList.remove('btn-loading');
     }
@@ -521,6 +575,7 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
 
 
 
