@@ -451,14 +451,13 @@ function renderCart() {
         // Проверяем наличие
         const isOutOfStock = p.stock === 0;
         
-        // Стили для "Нет в наличии"
+        // Стили для прозрачности (оставляем, чтобы было понятно, что товар недоступен)
         const opacityStyle = isOutOfStock ? 'style="opacity: 0.6; pointer-events: none;"' : '';
+        
         const priceHtml = isOutOfStock 
             ? '<div class="cart-item-price" style="color: #ff3b30; font-size: 0.9rem;">Нет в наличии</div>' 
             : `<div class="cart-item-price">${p.price * item.qty} ₽</div>`;
 
-        // Кнопки управления: если нет в наличии -> кнопка Удалить, иначе -> + / -
-        // Обратите внимание: pointer-events: auto возвращаем кнопке удаления, чтобы на неё можно было нажать
         const controlsHtml = isOutOfStock 
             ? `<button class="btn-remove-cart" onclick="removeItem('${item.id}')" style="pointer-events: auto;">Удалить</button>`
             : `<div class="qty-control-cart">
@@ -469,7 +468,7 @@ function renderCart() {
 
         return `
         <div class="cart-block">
-            <div class="cart-item" ${isOutOfStock ? : ''}>
+            <div class="cart-item">
                 <div class="card-img-container" ${opacityStyle}>
                     <img src="${p.imageUrl}" class="cart-item-img" loading="lazy">
                 </div>
@@ -487,7 +486,6 @@ function renderCart() {
         </div>`;
     }).join('');
 }
-
 function updatePrettyDate(input) {
     const display = document.getElementById('date-display');
     display.value = input.value ? formatSmartDate(input.value) : '';
@@ -575,6 +573,7 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
 
 
 
