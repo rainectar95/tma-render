@@ -759,7 +759,7 @@
     left: 50%;
     transform: translateX(-50%);
     background-color: var(--bg-card-img);
-    color: var(--text-color);
+    color: var(--card-bg);
     padding: 1rem 1.5rem;
     border-radius: 99rem;
     font-size: 1rem;
@@ -784,4 +784,5 @@
 .top-tooltip.success {
     background-color: #4cd964; /* Зеленый для успеха */
 }
+
 
