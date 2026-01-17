@@ -4,7 +4,7 @@ tg.expand();
 // ==========================================
 // ⚙️ НАСТРОЙКИ
 // ==========================================
-const IS_LOCAL_MODE = true;
+const IS_LOCAL_MODE = false;
 const API_URL = 'https://tma-render.onrender.com'; // ВАША ССЫЛКА
 const userId = tg.initDataUnsafe?.user?.id || 'test_user_777';
 
@@ -71,6 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('loader').style.display = 'none';
     document.getElementById('app').style.display = 'block';
     
+    startLiveUpdates();
     document.querySelectorAll('input, textarea, select').forEach(el => {
         el.addEventListener('input', function() { this.classList.remove('input-error'); });
     });
@@ -473,4 +474,5 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
 
