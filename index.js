@@ -170,7 +170,7 @@ app.post('/api/action', async (req, res) => {
             let totalSum = 0;
 
             // Разделители для шаблонов
-            const SEP_LONG = '· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·';
+            const SEP_LONG = '· · · · · · · · · · · · · · · · · · · · · · · · · · · · ·';
             const SEP_SHORT = '· · · · · · · · · · · · · · · · · · · · · · · · · · · · ·';
 
             // 2. Проверка и списание
@@ -285,3 +285,4 @@ async function ensureClientsSheet() { try { await getSheetData(`${SHEET_CLIENTS}
 app.get('/ping', (req, res) => res.send('pong'));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
