@@ -7,7 +7,7 @@ const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
 const app = express();
-const cache = new NodeCache({ stdTTL: 5 }); // Кэш на 5 секунд
+const cache = new NodeCache({ stdTTL: 5 }); 
 
 app.use(cors());
 app.use(express.json());
@@ -69,77 +69,13 @@ async function updateRow(range, values) {
     });
 }
 
-// ==========================================
-// 🛡️ АДМИН-ПАНЕЛЬ (ЧЕРЕЗ БОТА)
-// ==========================================
-
-// 1. Отчет за СЕГОДНЯ: /report
-bot.onText(/\/report/, async (msg) => {
-    if (String(msg.chat.id) !== String(ADMIN_CHAT_ID)) return;
-    const todayStr = getFormattedDate(new Date());
-    await sendSummary(msg.chat.id, todayStr, "сегодня");
-});
-
-// 2. Отчет за ЗАВТРА: /report_tomorrow
-bot.onText(/\/report_tomorrow/, async (msg) => {
-    if (String(msg.chat.id) !== String(ADMIN_CHAT_ID)) return;
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomStr = getFormattedDate(tomorrow);
-    await sendSummary(msg.chat.id, tomStr, "завтра");
-});
-
-async function sendSummary(chatId, dateStr, label) {
-    try {
-        bot.sendChatAction(chatId, 'typing');
-        // Проверяем наличие листа
-        const rows = await getSheetData(`${dateStr}!A2:H`);
-        if (!rows.length) throw new Error("empty");
-
-        const totalOrders = rows.length;
-        // Суммируем 8-ю колонку (H), удаляя " ₽" и пробелы
-        const totalCash = rows.reduce((sum, row) => {
-            const val = row[7] ? parseFloat(row[7].replace(/[^\d.]/g, '')) : 0;
-            return sum + val;
-        }, 0);
-
-        bot.sendMessage(chatId, 
-            `📊 <b>Сводка на ${label} (${dateStr}):</b>\n\n` +
-            `✅ Заказов: <b>${totalOrders}</b>\n` +
-            `💰 Сумма: <b>${totalCash} ₽</b>`, 
-            { parse_mode: 'HTML' }
-        );
-    } catch (e) {
-        bot.sendMessage(chatId, `📅 На ${label} (${dateStr}) заказов пока нет.`);
-    }
+// Функция для вытаскивания эмодзи из строки категории (например "🧀 Молочное" -> "🧀")
+function extractIcon(categoryStr) {
+    if (!categoryStr) return '📦';
+    // Берем первую часть строки до пробела. Если там эмодзи, оно вернется.
+    const parts = categoryStr.trim().split(' ');
+    return parts.length > 0 ? parts[0] : '📦';
 }
-
-// 3. Добавление товара: /add_stock ID КОЛИЧЕСТВО
-bot.onText(/\/add_stock (\d+) (\d+)/, async (msg, match) => {
-    if (String(msg.chat.id) !== String(ADMIN_CHAT_ID)) return;
-    const prodId = match[1];
-    const qtyToAdd = parseInt(match[2]);
-
-    try {
-        const rows = await getSheetData(`${SHEET_PRODUCTS}!A2:G`);
-        const rowIndex = rows.findIndex(r => r[0] == prodId);
-        
-        if (rowIndex === -1) return bot.sendMessage(ADMIN_CHAT_ID, `❌ Товар с ID ${prodId} не найден.`);
-        
-        const currentStock = parseInt(rows[rowIndex][6]) || 0;
-        const newStock = currentStock + qtyToAdd;
-        const prodName = rows[rowIndex][2];
-        
-        // Обновляем ячейку G (7-я колонка)
-        await updateRow(`${SHEET_PRODUCTS}!G${rowIndex + 2}`, [newStock]);
-        
-        cache.del("products"); // Сброс кэша
-        bot.sendMessage(ADMIN_CHAT_ID, `✅ <b>Приход принят!</b>\n${prodName}\nБыло: ${currentStock} -> Стало: <b>${newStock}</b>`, {parse_mode: 'HTML'});
-    } catch (e) {
-        bot.sendMessage(ADMIN_CHAT_ID, `Ошибка: ${e.message}`);
-    }
-});
-
 
 // ==========================================
 // 🚀 API СЕРВЕР
@@ -157,12 +93,13 @@ app.get('/api/get_products', async (req, res) => {
         const cached = cache.get("products"); 
         if (cached) return res.json(cached); 
         
+        // Берем диапазон A:I, где колонка B (index 1) - это Категория
         const rows = await getSheetData(`${SHEET_PRODUCTS}!A2:I`);
         const products = rows
             .filter(row => row[7] === 'TRUE' || row[7] === 'Да' || row[7] === true)
             .map((row, index) => ({ 
                 id: row[0], 
-                category: row[1], 
+                category: row[1], // Сохраняем категорию как есть (например "🧀 Молочное")
                 name: row[2], 
                 price: parseFloat(row[3]) || 0, 
                 description: row[4], 
@@ -179,11 +116,10 @@ app.get('/api/get_products', async (req, res) => {
     } 
 });
 
-// ⚡ НОВОЕ: Проверка остатков перед корзиной
+// Проверка остатков
 app.post('/api/check_stock', async (req, res) => {
     const { cart } = req.body;
     try {
-        // Берем свежие данные (без кэша или с минимальным)
         const rows = await getSheetData(`${SHEET_PRODUCTS}!A2:G`);
         const products = rows.map(row => ({ 
             id: row[0], 
@@ -218,30 +154,40 @@ app.post('/api/action', async (req, res) => {
             const cart = data.cart; 
             if (!cart || !cart.length) throw new Error("Корзина пуста");
 
-            // 1. Получаем СВЕЖИЕ остатки
+            // 1. Получаем СВЕЖИЕ остатки и Категорию (row[1])
             const prodRows = await getSheetData(`${SHEET_PRODUCTS}!A2:I`);
             const products = prodRows.map((row, i) => ({ 
                 id: row[0], 
+                category: row[1], // Колонка B: Категория
                 name: row[2], 
                 price: parseFloat(row[3]), 
                 stock: parseInt(row[6]), 
                 rowIndex: i + 2 
             }));
 
-            let itemsList = []; 
+            let itemsListForAdmin = []; 
+            let itemsListForSheet = []; 
             let totalSum = 0;
+
+            // Разделители для шаблонов
+            const SEP_LONG = '· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·';
+            const SEP_SHORT = '· · · · · · · · · · · · · · · · · · · · · · · · · · · · ·';
 
             // 2. Проверка и списание
             for (const item of cart) {
                 const p = products.find(x => x.id === item.id);
                 if (!p) throw new Error(`Товар ${item.id} не найден`);
                 
-                // Финальная проверка наличия
                 if (p.stock < item.qty) {
-                    throw new Error(`Товар "${p.name}" закончился (осталось ${p.stock}). Пожалуйста, обновите корзину.`);
+                    throw new Error(`Товар "${p.name}" закончился (осталось ${p.stock}).`);
                 }
 
-                itemsList.push(`${p.name} x ${item.qty}`); 
+                // Извлекаем иконку из ячейки категории (например "🧀 Молочное" -> "🧀")
+                const icon = extractIcon(p.category);
+
+                itemsListForAdmin.push(`${icon} ${p.name} x ${item.qty}`);
+                itemsListForSheet.push(`${p.name} x ${item.qty}`);
+                
                 totalSum += p.price * item.qty;
                 
                 // Вычисляем новый остаток
@@ -250,19 +196,22 @@ app.post('/api/action', async (req, res) => {
                 // Обновляем в Google Sheets
                 await updateRow(`${SHEET_PRODUCTS}!G${p.rowIndex}`, [newStock]);
 
-                // 🔔 НАПОМИНАЛКА АДМИНУ
+                // 🔔 УВЕДОМЛЕНИЕ: МАЛО ТОВАРА (Ваш новый шаблон)
                 if (newStock <= 10) {
-                    bot.sendMessage(ADMIN_CHAT_ID, `⚠️ <b>ЗАКАНЧИВАЕТСЯ ТОВАР!</b>\n📦 ${p.name}\nОстаток: <b>${newStock}</b> шт.`, {parse_mode: 'HTML'});
+                    const lowStockMsg = 
+                        `Товар скоро закончится!\n` +
+                        `${SEP_SHORT}\n` +
+                        `${icon} ${p.name}\n` +
+                        `${SEP_SHORT}\n` +
+                        `Остаток: ${newStock} шт.`;
+                    
+                    bot.sendMessage(ADMIN_CHAT_ID, lowStockMsg);
                 }
             }
 
-            // 3. Запись заказа (Логика создания листа с датой)
-            const deliveryDateRaw = data.orderDetails.deliveryRaw; // ГГГГ-ММ-ДД
-            let dateObj = new Date();
-            // Если клиент выбрал дату доставки, используем её для имени листа, ИЛИ используем текущую дату оформления
-            // *Обычно заказы пишут в лист той даты, КОГДА нужно доставить*
-            if (deliveryDateRaw) dateObj = new Date(deliveryDateRaw);
-            
+            // 3. Запись заказа
+            const deliveryDateRaw = data.orderDetails.deliveryRaw; 
+            let dateObj = deliveryDateRaw ? new Date(deliveryDateRaw) : new Date();
             const targetSheetName = getFormattedDate(dateObj); // ДД.ММ.ГГГГ
 
             await ensureDailySheet(targetSheetName);
@@ -271,8 +220,8 @@ app.post('/api/action', async (req, res) => {
             const typeLetter = (data.orderDetails.deliveryType === 'Самовывоз') ? 'С' : 'Д';
             const orderId = `${typeLetter}-${nextNum}`;
             
-            const productsString = itemsList.join('\n');
-            const nowTime = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }); // Укажите свой пояс
+            const productsString = itemsListForSheet.join('\n');
+            const nowTime = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" });
 
             await updateRow(`${targetSheetName}!A${existingRows.length + 1}`, [
                 orderId, nowTime, 
@@ -282,7 +231,6 @@ app.post('/api/action', async (req, res) => {
                 'Новый', data.orderDetails.comment, userId
             ]);
             
-            // Обновляем сводку и базу клиентов
             await updateDailySummary(targetSheetName);
             await sortSheetsByDate();
             await updateCustomerDatabase({ 
@@ -293,15 +241,32 @@ app.post('/api/action', async (req, res) => {
                 userId: userId 
             });
             
-            cache.del("products"); // Очищаем кэш
+            cache.del("products");
 
-            // Уведомления
+            // Уведомление клиенту
             const displayAddress = data.orderDetails.deliveryType === 'Самовывоз' ? "Самовывоз" : data.orderDetails.address;
             try { await bot.sendMessage(userId, `✅ <b>Заказ № ${orderId} оформлен!</b>\n\n💰 <b>Сумма:</b> ${totalSum} ₽`, { parse_mode: 'HTML' }); } catch (e) {}
 
             if (ENABLE_WORK_CHAT) {
+                // 🔥 УВЕДОМЛЕНИЕ: НОВЫЙ ЗАКАЗ (Ваш новый шаблон)
+                const adminMsg = 
+                    `🔥Новый заказ на ${targetSheetName}\n\n` +
+                    `№ ${orderId}\n\n` +
+                    `Клиент\n` +
+                    `${SEP_LONG}\n` +
+                    `👤 ${data.orderDetails.name}\n` +
+                    `📞 ${data.orderDetails.phone}\n` +
+                    `📍 ${displayAddress}\n` +
+                    `${SEP_LONG}\n\n` +
+                    `Состав заказа\n` +
+                    `${SEP_LONG}\n` +
+                    `${itemsListForAdmin.join('\n')}\n` +
+                    `${SEP_LONG} \n` +
+                    `Сумма: ${totalSum} ₽`;
+
                 const keyboard = { inline_keyboard: [[{ text: '🍳 Готовим', callback_data: `status|${targetSheetName}|${orderId}|Готовится` }, { text: '🚀 В пути', callback_data: `status|${targetSheetName}|${orderId}|В пути` }], [{ text: '✅ Готов', callback_data: `status|${targetSheetName}|${orderId}|Готов` }], [{ text: '🏁 Выполнен', callback_data: `status|${targetSheetName}|${orderId}|Выполнен` }, { text: '❌ Отмена', callback_data: `status|${targetSheetName}|${orderId}|Отменен` }]] };
-                try { await bot.sendMessage(ADMIN_CHAT_ID, `Новый заказ на <b>${targetSheetName}</b> 🔥\n\n<b>№ ${orderId}</b>\n👤 ${data.orderDetails.name}\n📞 ${data.orderDetails.phone}\n📍 ${displayAddress}\n🛒\n${itemsList.join('\n')}\n\nСумма: <b>${totalSum} ₽</b>`, { parse_mode: 'HTML', reply_markup: keyboard }); } catch (e) {}
+                
+                try { await bot.sendMessage(ADMIN_CHAT_ID, adminMsg, { reply_markup: keyboard }); } catch (e) {}
             }
             res.json({ status: 'success', orderId, message: `Заказ №${orderId} оформлен!` });
         }
@@ -310,7 +275,7 @@ app.post('/api/action', async (req, res) => {
     }
 });
 
-// Служебные функции для Sheets (сокращенные, как у вас были)
+// Служебные функции для Sheets
 async function sortSheetsByDate() { try { const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID }); const allSheets = meta.data.sheets; const dateSheets = []; const otherSheets = []; allSheets.forEach(s => { /^\d{2}\.\d{2}\.\d{4}$/.test(s.properties.title) ? dateSheets.push(s) : otherSheets.push(s); }); dateSheets.sort((a, b) => { const [d1, m1, y1] = a.properties.title.split('.'); const [d2, m2, y2] = b.properties.title.split('.'); return new Date(y1, m1-1, d1) - new Date(y2, m2-1, d2); }); const requests = [...otherSheets, ...dateSheets].map((s, i) => ({ updateSheetProperties: { properties: { sheetId: s.properties.sheetId, index: i }, fields: "index" } })); if(requests.length) await sheets.spreadsheets.batchUpdate({ spreadsheetId: SPREADSHEET_ID, resource: { requests } }); } catch(e){} }
 async function updateDailySummary(sheetName) { try { const rows = await getSheetData(`${sheetName}!G2:G`); const totals = {}; rows.forEach(row => { if (!row[0]) return; row[0].split('\n').forEach(line => { const m = line.match(/(.+) x (\d+)$/); if (m) totals[m[1].trim()] = (totals[m[1].trim()] || 0) + parseInt(m[2]); }); }); const data = [['📦 ИТОГО', 'КОЛ-ВО'], ...Object.entries(totals)]; await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!N1`, valueInputOption: 'USER_ENTERED', resource: { values: data } }); } catch(e){} }
 async function ensureDailySheet(sheetName) { try { const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID }); if (!meta.data.sheets.some(s => s.properties.title === sheetName)) { const id = (await sheets.spreadsheets.batchUpdate({ spreadsheetId: SPREADSHEET_ID, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } })).data.replies[0].addSheet.properties.sheetId; await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [["Заказ", "Время", "Имя", "Телефон", "Адрес", "Тип", "Товары", "Сумма", "Статус", "Коммент", "UID"]] } }); } } catch(e){} }
