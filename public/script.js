@@ -342,7 +342,11 @@ function calculateTotals() {
     let sum = 0, qty = 0;
     state.cart.forEach(item => {
         const p = state.products.find(x => x.id === item.id);
-        if (p) { sum += p.price * item.qty; qty += item.qty; }
+        // Считаем только если товар существует И его сток > 0
+        if (p && p.stock > 0) { 
+            sum += p.price * item.qty; 
+            qty += item.qty; 
+        }
     });
     state.totals = { finalTotal: sum, totalQty: qty };
 }
@@ -376,6 +380,7 @@ function renderProducts() {
         container.appendChild(div);
     });
 }
+
 function renderCart() {
     const container = document.getElementById('cart-items-list');
     if (!container) return;
@@ -389,30 +394,46 @@ function renderCart() {
         const p = state.products.find(x => x.id === item.id);
         if (!p) return '';
 
+        // Проверяем наличие
+        const isOutOfStock = p.stock === 0;
+        
+        // Стили для "Нет в наличии"
+        const opacityStyle = isOutOfStock ? 'style="opacity: 0.6; pointer-events: none;"' : '';
+        const priceHtml = isOutOfStock 
+            ? '<div class="cart-item-price" style="color: #ff3b30; font-size: 0.9rem;">Нет в наличии</div>' 
+            : `<div class="cart-item-price">${p.price * item.qty} ₽</div>`;
+
+        // Кнопки управления: если нет в наличии -> кнопка Удалить, иначе -> + / -
+        // Обратите внимание: pointer-events: auto возвращаем кнопке удаления, чтобы на неё можно было нажать
+        const controlsHtml = isOutOfStock 
+            ? `<button class="btn-remove-cart" onclick="removeItem('${item.id}')" style="pointer-events: auto;">Удалить</button>`
+            : `<div class="qty-control-cart">
+                   <button class="btn-qty" onclick="changeQty('${item.id}', -1)">−</button>
+                   <span class="qty-val">${item.qty}</span>
+                   <button class="btn-qty" onclick="changeQty('${item.id}', 1)">+</button>
+               </div>`;
+
         return `
         <div class="cart-block">
-            <div class="cart-item">
-                <div class="card-img-container">
+            <div class="cart-item" ${isOutOfStock ? 'style="background: #fff0f0;"' : ''}>
+                <div class="card-img-container" ${opacityStyle}>
                     <img src="${p.imageUrl}" class="cart-item-img" loading="lazy">
                 </div>
                 <div class="cart-item-info">
-                    <div class="card-item-block">
+                    <div class="card-item-block" ${opacityStyle}>
                         <div class="cart-item-name">${p.name}</div>
                         <div class="cart-item-description">${p.description || ''}</div>
                     </div>
                     <div class="cart-counter">
-                        <div class="cart-item-price">${p.price * item.qty} ₽</div>
-                        <div class="qty-control-cart">
-                            <button class="btn-qty" onclick="changeQty('${item.id}', -1)">−</button>
-                            <span class="qty-val">${item.qty}</span>
-                            <button class="btn-qty" onclick="changeQty('${item.id}', 1)">+</button>
-                        </div>
+                        ${priceHtml}
+                        ${controlsHtml}
                     </div>
                 </div>
             </div>
         </div>`;
     }).join('');
 }
+
 function updatePrettyDate(input) {
     const display = document.getElementById('date-display');
     display.value = input.value ? formatSmartDate(input.value) : '';
@@ -500,6 +521,7 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
 
 
 
