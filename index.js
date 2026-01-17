@@ -13,7 +13,11 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- КОНФИГУРАЦИЯ ---
+// ==========================================
+// ⚙️ НАСТРОЙКИ
+// ==========================================
+const ENABLE_WORK_CHAT = true; // 👈 ПЕРЕКЛЮЧАТЕЛЬ (true = писать в чат, false = тишина)
+
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_PRODUCTS = "Товары";
 const SHEET_CLIENTS = "Клиенты";
@@ -37,7 +41,7 @@ const sheets = google.sheets({ version: 'v4', auth });
 const mainMenuKeyboard = {
     reply_markup: {
         keyboard: [
-            [{ text: '🛍 Сделать заказ', web_app: { url: 'https://tma-render.onrender.com' } }], // 👈 ЗАМЕНИТЕ НА СВОЮ ССЫЛКУ, ЕСЛИ ДРУГАЯ
+            [{ text: '🛍 Сделать заказ', web_app: { url: 'https://tma-render.onrender.com' } }], // ⚠️ ПРОВЕРЬТЕ ССЫЛКУ
             [{ text: '🚚 Где мой заказ?' }, { text: '👤 Мой профиль' }],
             [{ text: '📞 Поддержка' }]
         ],
@@ -46,18 +50,14 @@ const mainMenuKeyboard = {
 };
 
 // --- ОБРАБОТКА КОМАНД БОТА ---
-
-// 1. Старт
 bot.onText(/\/start/, (msg) => {
     bot.sendMessage(msg.chat.id, `👋 Привет, ${msg.from.first_name}! \nЯ готов принять заказ.`, mainMenuKeyboard);
 });
 
-// 2. Поддержка
 bot.onText(/📞 Поддержка/, (msg) => {
-    bot.sendMessage(msg.chat.id, "Есть вопросы? Пишите нашему менеджеру: @ВАШ_ЮЗЕРНЕЙМ"); // 👇 Впишите сюда свой юзернейм
+    bot.sendMessage(msg.chat.id, "Есть вопросы? Пишите нашему менеджеру: @ВАШ_ЮЗЕРНЕЙМ");
 });
 
-// 3. Где мой заказ?
 bot.onText(/🚚 Где мой заказ\?/, async (msg) => {
     const userId = msg.from.id;
     const now = new Date();
@@ -69,14 +69,12 @@ bot.onText(/🚚 Где мой заказ\?/, async (msg) => {
     bot.sendChatAction(userId, 'typing');
 
     try {
-        const rows = await getSheetData(`${sheetName}!A:K`); // Ищем в сегодняшнем листе
-        // Ищем заказы этого юзера (User ID в колонке K = индекс 10)
-        // Берем последний заказ (с конца массива)
+        const rows = await getSheetData(`${sheetName}!A:K`);
         const myOrder = rows.reverse().find(row => row[10] && String(row[10]) === String(userId));
 
         if (myOrder) {
             const orderId = myOrder[0];
-            const status = myOrder[8]; // Колонка I
+            const status = myOrder[8];
             const items = myOrder[6];
             
             let statusEmoji = "🕒";
@@ -99,7 +97,6 @@ bot.onText(/🚚 Где мой заказ\?/, async (msg) => {
     }
 });
 
-// 4. Профиль
 bot.onText(/👤 Мой профиль/, async (msg) => {
     const userId = msg.from.id;
     bot.sendChatAction(userId, 'typing');
@@ -107,13 +104,12 @@ bot.onText(/👤 Мой профиль/, async (msg) => {
     try {
         await ensureClientsSheet();
         const rows = await getSheetData(`${SHEET_CLIENTS}!A:F`);
-        // Ищем по UserID (Колонка F = индекс 5)
         const client = rows.find(row => row[5] && String(row[5]) === String(userId));
 
         if (client) {
             const name = client[1];
             const address = client[2];
-            const phone = client[3].replace('="', '').replace('"', ''); // Убираем формулу
+            const phone = client[3].replace('="', '').replace('"', '');
             const lastOrder = client[4];
 
             bot.sendMessage(userId, 
@@ -152,18 +148,16 @@ async function updateRow(range, values) {
     });
 }
 
-// --- 🤖 ОБРАБОТКА КНОПОК (АДМИН + КЛИЕНТ) ---
+// --- 🤖 ОБРАБОТКА КНОПОК ---
 bot.on('callback_query', async (query) => {
     const userId = query.from.id;
     const data = query.data;
 
-    // 1. Повтор заказа (Заглушка, т.к. полная логика сложная)
     if (data === 'repeat_last') {
         bot.answerCallbackQuery(query.id, { text: 'Откройте меню, чтобы оформить заказ заново!', show_alert: true });
         return;
     }
 
-    // 2. Оценка заказа (Звезды)
     if (data.startsWith('rate|')) {
         const [_, stars, orderId] = data.split('|');
         bot.answerCallbackQuery(query.id, { text: `Спасибо за оценку ${stars}⭐!` });
@@ -172,14 +166,13 @@ bot.on('callback_query', async (query) => {
             message_id: query.message.message_id
         });
         
-        // Отправляем админу, если оценка плохая
-        if (parseInt(stars) <= 3) {
+        // Отправляем админу (если чат включен)
+        if (ENABLE_WORK_CHAT && parseInt(stars) <= 3) {
              bot.sendMessage(ADMIN_CHAT_ID, `⚠️ <b>ПЛОХОЙ ОТЗЫВ!</b>\nКлиент поставил ${stars}⭐ заказу ${orderId}.\nНадо связаться!`, { parse_mode: 'HTML' });
         }
         return;
     }
 
-    // 3. Статусы заказов (Админская часть)
     try {
         const [action, sheetName, orderId, newStatus] = data.split('|');
         if (action === 'status') {
@@ -207,7 +200,6 @@ bot.on('callback_query', async (query) => {
             if (clientUserId && userNotifyText) {
                 try {
                     await bot.sendMessage(clientUserId, userNotifyText, { parse_mode: 'HTML' });
-                    // Если выполнен - просим оценку
                     if (askFeedback) {
                         setTimeout(async () => {
                             await bot.sendMessage(clientUserId, "Как вам заказ? Оцените нас:", {
@@ -223,7 +215,7 @@ bot.on('callback_query', async (query) => {
                                     ]
                                 }
                             });
-                        }, 2000); // Пауза 2 секунды
+                        }, 2000);
                     }
                 } catch (e) { console.error("Ошибка отправки клиенту:", e.message); }
             }
@@ -235,7 +227,6 @@ bot.on('callback_query', async (query) => {
 
 // --- GOOGLE SHEETS LOGIC (ОСТАЛЬНОЕ) ---
 async function sortSheetsByDate() {
-    // ... (код сортировки без изменений)
      try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
         const allSheets = meta.data.sheets;
@@ -258,7 +249,6 @@ async function sortSheetsByDate() {
 function parseDate(str) { const parts = str.split('.'); return new Date(parts[2], parts[1] - 1, parts[0]); }
 
 async function updateDailySummary(sheetName) {
-    // ... (код сводки без изменений)
     try {
         const rows = await getSheetData(`${sheetName}!G2:G`); const totals = {};
         rows.forEach(row => { if (!row[0]) return; const lines = row[0].split('\n'); lines.forEach(line => { const match = line.match(/(.+) x (\d+)$/); if (match) { const name = match[1].trim(); const qty = parseInt(match[2], 10); if (!totals[name]) totals[name] = 0; totals[name] += qty; } }); });
@@ -269,14 +259,12 @@ async function updateDailySummary(sheetName) {
 }
 
 async function ensureDailySheet(sheetName) {
-    // ... (создание ежедневного листа - без изменений)
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
         const sheetExists = meta.data.sheets.some(s => s.properties.title === sheetName);
         if (!sheetExists) {
             const createRes = await sheets.spreadsheets.batchUpdate({ spreadsheetId: SPREADSHEET_ID, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
             const newSheetId = createRes.data.replies[0].addSheet.properties.sheetId;
-            // ... (тут ваши стили для листа, оставьте как было в прошлом коде, я сократил для читаемости)
             await sheets.spreadsheets.batchUpdate({ spreadsheetId: SPREADSHEET_ID, resource: { requests: [
                 { repeatCell: { range: { sheetId: newSheetId, startRowIndex: 0, endRowIndex: 1 }, cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: "CENTER" } }, fields: "userEnteredFormat" } },
                 { updateSheetProperties: { properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } }, fields: "gridProperties.frozenRowCount" } }
@@ -287,7 +275,6 @@ async function ensureDailySheet(sheetName) {
     } catch (e) {}
 }
 
-// 🔥 ОБНОВЛЕННАЯ ФУНКЦИЯ ДЛЯ БАЗЫ КЛИЕНТОВ (ДОБАВИЛ USER ID)
 async function ensureClientsSheet() {
     try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -297,7 +284,7 @@ async function ensureClientsSheet() {
                 spreadsheetId: SPREADSHEET_ID,
                 resource: { requests: [{ addSheet: { properties: { title: SHEET_CLIENTS } } }] }
             });
-            const headers = ["№", "Имя", "Адрес", "Номер телефона", "Последний заказ", "User ID"]; // 👈 Добавил User ID
+            const headers = ["№", "Имя", "Адрес", "Номер телефона", "Последний заказ", "User ID"];
             await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_CLIENTS}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headers] } });
         }
     } catch (e) { console.error("Client DB Error:", e.message); }
@@ -306,31 +293,26 @@ async function ensureClientsSheet() {
 async function updateCustomerDatabase(customerData) {
     try {
         await ensureClientsSheet();
-        const rows = await getSheetData(`${SHEET_CLIENTS}!A2:F`); // Читаем по F
+        const rows = await getSheetData(`${SHEET_CLIENTS}!A2:F`);
         const phoneToFind = customerData.phone.replace(/\D/g, ''); 
         
-        // 1. Ищем клиента по UserID (если есть) или Телефону
         let foundIndex = -1;
-        // ... (логика поиска упрощена для примера, ищем по телефону для надежности)
         for (let i = 0; i < rows.length; i++) {
              const cellVal = rows[i][3] || "";
              if (cellVal.replace(/\D/g, '').includes(phoneToFind)) { foundIndex = i; break; }
         }
 
         const formattedPhone = `="${customerData.phone}"`; 
-        const userIdVal = customerData.userId || ""; // 👈 Получаем ID
+        const userIdVal = customerData.userId || "";
 
         if (foundIndex !== -1) {
-            // Обновляем старого
             const sheetRow = foundIndex + 2;
             const currentName = rows[foundIndex][1];
-            // Обновляем Имя, Адрес, Телефон, Последний заказ, UserID
             await updateRow(`${SHEET_CLIENTS}!B${sheetRow}:F${sheetRow}`, [currentName, customerData.address, formattedPhone, customerData.items, userIdVal]);
         } else {
-            // Создаем нового
             const nextId = rows.length + 1;
             const newRowIndex = rows.length + 2;
-            const newRow = [nextId, customerData.name, customerData.address, formattedPhone, customerData.items, userIdVal]; // 👈 Пишем ID
+            const newRow = [nextId, customerData.name, customerData.address, formattedPhone, customerData.items, userIdVal]; 
             await updateRow(`${SHEET_CLIENTS}!A${newRowIndex}`, newRow);
         }
     } catch (e) { console.error("Client Update Logic Error:", e); }
@@ -344,7 +326,6 @@ function calculateOrderTotals(cart, products) {
 
 // --- API ROUTES ---
 app.get('/api/get_products', async (req, res) => {
-    // ... (код get_products без изменений)
     try {
         const cached = cache.get("products"); if (cached) return res.json(cached);
         const rows = await getSheetData(`${SHEET_PRODUCTS}!A2:I`);
@@ -359,7 +340,7 @@ app.post('/api/action', async (req, res) => {
         if (action === 'place_order') {
             const cart = data.cart; 
             if (!cart || !cart.length) throw new Error("Корзина пуста");
-            // ... (проверки товаров и остатков такие же)
+            
             const prodRows = await getSheetData(`${SHEET_PRODUCTS}!A2:I`);
             const products = prodRows.map((row, i) => ({ id: row[0], name: row[2], price: parseFloat(row[3]), stock: parseInt(row[6]), rowIndex: i + 2 }));
             let itemsList = []; let totalSum = 0;
@@ -370,12 +351,11 @@ app.post('/api/action', async (req, res) => {
                 if (p.stock > 0) await updateRow(`${SHEET_PRODUCTS}!G${p.rowIndex}`, [p.stock - item.qty]);
             }
 
-            // ... (логика имени листа)
             const now = new Date();
             const d = String(now.getDate()).padStart(2, '0');
             const m = String(now.getMonth() + 1).padStart(2, '0');
             const y = now.getFullYear();
-            const targetSheetName = `${d}.${m}.${y}`; // Упростили для примера (всегда в сегодняшний лист)
+            const targetSheetName = `${d}.${m}.${y}`; 
             
             await ensureDailySheet(targetSheetName);
             const existingRows = await getSheetData(`${targetSheetName}!A:A`);
@@ -395,21 +375,23 @@ app.post('/api/action', async (req, res) => {
             await updateRow(`${targetSheetName}!A${existingRows.length + 1}`, orderData);
             await updateDailySummary(targetSheetName);
             await sortSheetsByDate();
-            // 👇 ПЕРЕДАЕМ USER ID В БАЗУ КЛИЕНТОВ
             await updateCustomerDatabase({ name: data.orderDetails.name, phone: data.orderDetails.phone, address: data.orderDetails.address, items: productsString, userId: userId });
             
             cache.del("products");
 
             // --- УВЕДОМЛЕНИЯ ---
-            // ... (клиенту)
+            
+            // 1. Клиенту (всегда)
             const displayAddress = data.orderDetails.deliveryType === 'Самовывоз' ? "Самовывоз" : data.orderDetails.address;
             const userMessage = `✅ <b>Заказ № ${orderId} оформлен!</b>\n\n💰 <b>Сумма:</b> ${totals.finalTotal} ₽\n🚚 <b>Тип:</b> ${displayAddress}\n\n<i>Скоро начнем готовить!</i>`;
             try { await bot.sendMessage(userId, userMessage, { parse_mode: 'HTML' }); } catch (e) {}
 
-            // ... (админу)
-            const adminMessage = `Новый заказ 🔥\n\n<b>№ ${orderId}</b>\n\n👤 ${data.orderDetails.name}\n📞 ${data.orderDetails.phone}\n📍 ${displayAddress}\n🛒 <b>Товары:</b>\n${itemsList.join('\n')}\n\nСумма: <b>${totals.finalTotal} ₽</b>`;
-            const keyboard = { inline_keyboard: [[{ text: '🍳 Готовим', callback_data: `status|${targetSheetName}|${orderId}|Готовится` }, { text: '🚀 В пути', callback_data: `status|${targetSheetName}|${orderId}|В пути` }], [{ text: '✅ Готов', callback_data: `status|${targetSheetName}|${orderId}|Готов` }], [{ text: '🏁 Выполнен', callback_data: `status|${targetSheetName}|${orderId}|Выполнен` }, { text: '❌ Отмена', callback_data: `status|${targetSheetName}|${orderId}|Отменен` }]] };
-            try { await bot.sendMessage(ADMIN_CHAT_ID, adminMessage, { parse_mode: 'HTML', reply_markup: keyboard }); } catch (e) {}
+            // 2. Админу (ТОЛЬКО ЕСЛИ ВКЛЮЧЕНО) 👈
+            if (ENABLE_WORK_CHAT) {
+                const adminMessage = `Новый заказ 🔥\n\n<b>№ ${orderId}</b>\n\n👤 ${data.orderDetails.name}\n📞 ${data.orderDetails.phone}\n📍 ${displayAddress}\n🛒 <b>Товары:</b>\n${itemsList.join('\n')}\n\nСумма: <b>${totals.finalTotal} ₽</b>`;
+                const keyboard = { inline_keyboard: [[{ text: '🍳 Готовим', callback_data: `status|${targetSheetName}|${orderId}|Готовится` }, { text: '🚀 В пути', callback_data: `status|${targetSheetName}|${orderId}|В пути` }], [{ text: '✅ Готов', callback_data: `status|${targetSheetName}|${orderId}|Готов` }], [{ text: '🏁 Выполнен', callback_data: `status|${targetSheetName}|${orderId}|Выполнен` }, { text: '❌ Отмена', callback_data: `status|${targetSheetName}|${orderId}|Отменен` }]] };
+                try { await bot.sendMessage(ADMIN_CHAT_ID, adminMessage, { parse_mode: 'HTML', reply_markup: keyboard }); } catch (e) {}
+            }
 
             res.json({ status: 'success', orderId, message: `Заказ №${orderId} оформлен!` });
         }
