@@ -314,8 +314,6 @@
         align-items: center;
         height: 100%;
         gap: 0.5rem;
-        padding-block: 0.5rem;
-
     }
 
     .remove-item-btn {
@@ -735,22 +733,22 @@
 
 }
 .btn-remove-cart {
-    background-color: #ff3b30; /* Красный цвет iOS */
-    color: white;
+    background-color: var(--bg-card-img);
+    color: var(--text-color);
     border: none;
-    border-radius: 22rem; /* Такой же радиус как у qty-control-cart */
-    width: 10rem;         /* Та же ширина */
-    height: 2.5rem;       /* Та же высота */
+    border-radius: 22rem;
+    width: 10rem;
+    height: 2.5rem;
     font-size: 0.9rem;
     font-weight: 600;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 2px 5px rgba(255, 59, 48, 0.3);
 }
 
 .btn-remove-cart:active {
     background-color: #d63228;
     transform: scale(0.98);
 }
+
