@@ -395,8 +395,10 @@ function resetApp() {
 function calculateTotals() {
     let sum = 0, qty = 0;
     state.cart.forEach(item => {
+        // Ищем актуальный продукт в state.products, где данные свежие после fetch
         const p = state.products.find(x => x.id === item.id);
-        // Считаем только если товар существует И его сток > 0
+        
+        // Считаем сумму только если товар в наличии
         if (p && p.stock > 0) { 
             sum += p.price * item.qty; 
             qty += item.qty; 
@@ -512,36 +514,44 @@ function startLiveUpdates() {
         if (!cartHidden || modalVisible) return;
 
         await updateStockOnly();
-    }, 10000); // 10000 мс = 10 секунд
+    }, 2000); // 10000 мс = 10 секунд
 }
 
 async function updateStockOnly() {
     try {
         if (IS_LOCAL_MODE) return;
 
-        // 1. Тихо запрашиваем свежие данные
         const res = await fetch(`${API_URL}/api/get_products`);
         const data = await res.json();
         
         if (!data.products) return;
 
-        // 2. Обновляем локальные данные, сохраняя количество в корзине
-        const newProducts = data.products;
+        // 1. Обновляем весь массив продуктов в памяти актуальными данными
+        state.products = data.products;
 
-        // 3. Пробегаемся по карточкам и меняем только текст
-        newProducts.forEach(newP => {
-            // Находим старый продукт в памяти
-            const oldP = state.products.find(p => p.id === newP.id);
-            
-            // Если сток изменился
-            if (oldP && oldP.stock !== newP.stock) {
-                console.log(`Обновление товара ${newP.name}: ${oldP.stock} -> ${newP.stock}`);
-                oldP.stock = newP.stock; // Обновляем в памяти
-                
-                // Обновляем UI конкретной карточки
-                updateCardUI(newP);
+        // 2. Синхронизируем корзину с новыми данными
+        // Удаляем из корзины товары, которые вообще исчезли из прайса (если такие есть)
+        state.cart = state.cart.filter(item => state.products.some(p => p.id === item.id));
+
+        // 3. Проверяем, не превышает ли количество в корзине новый остаток
+        state.cart.forEach(item => {
+            const p = state.products.find(x => x.id === item.id);
+            if (p && p.stock > 0 && item.qty > p.stock) {
+                item.qty = p.stock;
             }
         });
+
+        // 4. Пересчитываем итоги (это исправит цену 0 в корзине)
+        calculateTotals();
+        updateCartUI();
+
+        // 5. Перерисовываем текущий экран
+        const isCartHidden = document.getElementById('cart-view').classList.contains('hidden');
+        if (isCartHidden) {
+            renderProducts();
+        } else {
+            renderCart();
+        }
 
     } catch (e) {
         console.error("Ошибка авто-обновления:", e);
@@ -573,6 +583,7 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
 
 
 
