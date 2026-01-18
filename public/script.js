@@ -18,6 +18,7 @@ let state = {
 // 🏁 ИНИЦИАЛИЗАЦИЯ
 // ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
+    // 1. Настройка даты (минимум завтра)
     const dateInput = document.getElementById('custom-date');
     if (dateInput) {
         const today = new Date();
@@ -26,12 +27,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         dateInput.min = tomorrow.toISOString().split('T')[0];
     }
 
+    // 2. Имя пользователя
     if (tg.initDataUnsafe?.user) {
         const u = tg.initDataUnsafe.user;
         const nameField = document.getElementById('name');
         if (nameField) nameField.value = [u.first_name, u.last_name].join(' ').trim();
     }
 
+    // 3. Маска телефона
     const phoneInput = document.getElementById('phone');
     if (phoneInput) {
         phoneInput.addEventListener('input', onPhoneInput);
@@ -43,9 +46,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     toggleDeliveryFields();
-    await loadProducts();
+
+    // 4. ЗАГРУЗКА ДАННЫХ (С ЗАДЕРЖКОЙ ДЛЯ ЛОАДЕРА)
+    // Ждем минимум 1 секунду, чтобы лоадер не моргал
+    const minLoaderTime = new Promise(resolve => setTimeout(resolve, 1000));
+    // Запускаем параллельно загрузку товаров и таймер
+    await Promise.all([loadProducts(), minLoaderTime]);
     
-    // Восстановление корзины
+    // 5. Восстановление корзины
     const savedCart = localStorage.getItem('myAppCart');
     if (savedCart) {
         try {
@@ -55,7 +63,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return !!product; 
             }).map(item => {
                 const product = state.products.find(p => p.id === item.id);
-                // Корректируем кол-во под локальные данные (предварительно)
+                // Если товара на складе меньше, чем было в корзине — урезаем
                 if (product.stock > 0 && item.qty > product.stock) {
                     item.qty = product.stock;
                 }
@@ -68,10 +76,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    document.getElementById('loader').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    
+    // 6. Снимаем лоадер плавно
+    const loader = document.getElementById('loader');
+    if (loader) {
+        loader.style.opacity = '0'; // Плавное исчезновение
+        loader.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => {
+            loader.style.display = 'none';
+            document.getElementById('app').style.display = 'block';
+        }, 300);
+    } else {
+        document.getElementById('app').style.display = 'block';
+    }
+
+    // 7. Запускаем живое обновление
     startLiveUpdates();
+    
+    // Убираем ошибки при вводе
     document.querySelectorAll('input, textarea, select').forEach(el => {
         el.addEventListener('input', function() { this.classList.remove('input-error'); });
     });
@@ -117,27 +138,22 @@ function onPhoneKeyDown(e) { if (e.keyCode == 8 && e.target.value.replace(/\D/g,
 // ==========================================
 function showCatalog() { switchView('catalog'); }
 
-// ⚡ ИЗМЕНЕНИЕ: Асинхронный переход в корзину
+// Асинхронный переход в корзину
 async function showCart() { 
     if (state.cart.length > 0 && !IS_LOCAL_MODE) {
-        tg.MainButton.showProgress(); // Показываем крутилку в ТГ
-        
+        tg.MainButton.showProgress(); 
         try {
-            // Спрашиваем сервер: "Все ли есть в наличии?"
             const res = await fetch(`${API_URL}/api/check_stock`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ cart: state.cart })
             });
             const data = await res.json();
-            
             tg.MainButton.hideProgress();
 
             if (data.status === 'error') {
-                // Если чего-то нет, ругаемся и обновляем каталог
                 tg.showAlert(data.message);
                 await loadProducts(); 
-                // Не пускаем в корзину, пока не исправят
                 return; 
             }
         } catch (e) {
@@ -244,13 +260,10 @@ function toggleDeliveryFields() {
 }
 
 async function submitOrder() {
-    // 1. Сброс подсветки ошибок
     document.querySelectorAll('.input-error').forEach(el => el.classList.remove('input-error'));
 
-    // 2. Проверка корзины
     if (state.cart.length === 0) return showTopTooltip("Корзина пуста 🛒", "error");
 
-    // 3. Сбор данных
     const nameInput = document.getElementById('name');
     const phoneInput = document.getElementById('phone');
     const deliveryType = document.getElementById('delivery-type').value;
@@ -258,15 +271,13 @@ async function submitOrder() {
     const streetInput = document.getElementById('address-street');
     const houseInput = document.getElementById('address-house');
 
-    // 4. УМНАЯ ВАЛИДАЦИЯ
-    let missingFields = []; // Сюда будем писать названия пустых полей
+    let missingFields = []; 
 
     if (!nameInput.value.trim()) {
         missingFields.push("имя");
         nameInput.classList.add('input-error');
     }
 
-    // Телефон: проверяем длину цифр
     if (!phoneInput.value.trim() || phoneInput.value.replace(/\D/g, '').length < 11) {
         missingFields.push("номер телефона");
         phoneInput.classList.add('input-error');
@@ -288,17 +299,13 @@ async function submitOrder() {
         }
     }
 
-    // ЕСЛИ ЕСТЬ ОШИБКИ
     if (missingFields.length > 0) {
         tg.HapticFeedback.notificationOccurred('error');
-        // Формируем строку: "Введите: имя, номер телефона"
         const msg = "Введите: " + missingFields.join(', ');
         showTopTooltip(msg, "error");
         return;
     }
 
-    // ... ДАЛЕЕ ВАШ КОД ОТПРАВКИ (finalAddress, fetch и т.д.) ...
-    // Скопируйте старую логику отправки сюда
     let finalAddress = deliveryType === 'Курьерская доставка' ? `${streetInput.value.trim()}, д. ${houseInput.value.trim()}` : "Самовывоз (ул. Предпортовая, д. 10)";
     const dateVal = formatSmartDate(dateInput.value);
     const comment = document.getElementById('comment').value;
@@ -369,10 +376,7 @@ function resetApp() {
 function calculateTotals() {
     let sum = 0, qty = 0;
     state.cart.forEach(item => {
-        // Ищем актуальный продукт в state.products, где данные свежие после fetch
         const p = state.products.find(x => x.id === item.id);
-        
-        // Считаем сумму только если товар в наличии
         if (p && p.stock > 0) { 
             sum += p.price * item.qty; 
             qty += item.qty; 
@@ -424,10 +428,7 @@ function renderCart() {
         const p = state.products.find(x => x.id === item.id);
         if (!p) return '';
 
-        // Проверяем наличие
         const isOutOfStock = p.stock === 0;
-        
-        // Стили для прозрачности (оставляем, чтобы было понятно, что товар недоступен)
         const opacityStyle = isOutOfStock ? 'style="opacity: 0.6; pointer-events: none;"' : '';
         
         const priceHtml = isOutOfStock 
@@ -473,6 +474,7 @@ function formatSmartDate(iso) {
     const m = ['Января','Февраля','Марта','Апреля','Мая','Июня','Июля','Августа','Сентября','Октября','Ноября','Декабря'];
     return `${['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][d.getDay()]}, ${d.getDate()} ${m[d.getMonth()]}`;
 }
+
 // ==========================================
 // 🔄 ЖИВОЕ ОБНОВЛЕНИЕ (POLLING)
 // ==========================================
@@ -482,6 +484,7 @@ function startLiveUpdates() {
     // Запускаем проверку каждые 2 секунды
     updateInterval = setInterval(async () => {
         const modalVisible = document.getElementById('success-modal').classList.contains('visible');
+        // Если висит окно "Заказ оформлен" — не обновляем, чтобы не сбить юзера
         if (modalVisible) return;
 
         await updateStockOnly();
@@ -549,19 +552,6 @@ async function updateStockOnly() {
     }
 }
 
-// Функция точечного обновления одной карточки
-function updateCardUI(product) {
-    // Нам нужно найти карточку товара в HTML. 
-    // Для этого при рендере (renderProducts) нужно давать карточкам ID.
-    // Но так как у нас простой список, найдем перебором или перерисуем всё, если список небольшой.
-    
-    // В вашем случае проще вызвать renderProducts(), так как товаров мало.
-    // Но чтобы не моргало, лучше найти конкретный элемент.
-    
-    // Давайте лучше просто перерисуем каталог, если пользователь его сейчас смотрит.
-    renderProducts(); 
-}
-
 // ==========================================
 // 🔔 УВЕДОМЛЕНИЯ (ТУЛТИПЫ)
 // ==========================================
@@ -590,10 +580,7 @@ function showTopTooltip(text, type = 'info') {
     }, 3000);
 }
 
-// Добавляем запуск в инициализацию
-// Найдите строчку: document.addEventListener('DOMContentLoaded', async () => { ...
-// И внутри, в самом конце перед закрывающей скобкой }, добавьте:
-// startLiveUpdates();
+// Экспорт (не обязательно, но полезно для отладки)
 window.updatePrettyDate = updatePrettyDate;
 window.removeItem = removeItem;
 window.changeQty = changeQty;
@@ -602,13 +589,3 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
-
-
-
-
-
-
-
-
-
-
