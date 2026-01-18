@@ -397,21 +397,46 @@ function renderProducts() {
     const container = document.getElementById('product-list');
     if (!container) return;
     container.innerHTML = '';
-    state.products.forEach(p => {
-        const cartItem = state.cart.find(i => i.id === p.id);
-        const qty = cartItem ? cartItem.qty : 0;
-        const details = p.stock === 0 ? '<span style="color:red">Нет в наличии</span>' : (p.description || '');
-        
-        let btn = (p.stock === 0) 
-            ? `<button class="btn-add" disabled style="opacity:0.5; background:#ccc; color:#000">Нет товара</button>` 
-            : (qty === 0) 
-                ? `<button class="btn-add" onclick="changeQty('${p.id}', 1)">В корзину</button>`
-                : `<div class="qty-control"><button class="btn-qty" onclick="changeQty('${p.id}', -1)">−</button><span class="qty-val">${qty}</span><button class="btn-qty" onclick="changeQty('${p.id}', 1)">+</button></div>`;
 
-        const div = document.createElement('div');
-        div.className = 'product-card';
-        div.innerHTML = `<div class="img-frame"><img src="${p.imageUrl}" class="product-img" loading="lazy"></div><div class="product-price">${p.price} ₽</div><div class="product-name">${p.name}</div><div class="product-details">${details}</div>${btn}`;
-        container.appendChild(div);
+    state.products.forEach(p => {
+        const cartItem = state.cart.find(item => item.id === p.id);
+        const qty = cartItem ? cartItem.qty : 0;
+        const imgUrl = p.imageUrl || 'https://via.placeholder.com/150';
+        
+        // Описание или "Нет в наличии" (если 0)
+        const details = p.stock === 0 ? '<span style="color:red">Нет в наличии</span>' : (p.description || '');
+
+        // 🔥 ЛОГИКА ОСТАТКА (Меньше 10)
+        let lowStockLabel = '';
+        if (p.stock > 0 && p.stock < 10) {
+            lowStockLabel = `<div class="product-stock-warning">Осталось: ${p.stock} шт.</div>`;
+        }
+
+        const card = document.createElement('div');
+        card.className = 'product-card';
+
+        let buttonHtml = '';
+        if (p.stock === 0 && !IS_LOCAL_MODE) {
+            buttonHtml = `<button class="btn-add" disabled style="opacity:0.5; background:#ccc; color:#000">Нет товара</button>`;
+        } else if (qty === 0) {
+            buttonHtml = `<button class="btn-add" onclick="changeQty('${p.id}', 1)">В корзину</button>`;
+        } else {
+            buttonHtml = `
+                <div class="qty-control">
+                    <button class="btn-qty" onclick="changeQty('${p.id}', -1)">−</button>
+                    <span class="qty-val">${qty}</span>
+                    <button class="btn-qty" onclick="changeQty('${p.id}', 1)">+</button>
+                </div>`;
+        }
+
+        card.innerHTML = `
+            <div class="img-frame"><img src="${imgUrl}" class="product-img" loading="lazy" alt="${p.name}"></div>            
+            <div class="product-price">${p.price} ₽</div>
+            <div class="product-name">${p.name}</div>
+            <div class="product-details">${details}</div>
+            ${lowStockLabel} 
+            ${buttonHtml}`;
+        container.appendChild(card);
     });
 }
 
@@ -589,4 +614,5 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
 
