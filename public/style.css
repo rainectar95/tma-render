@@ -16,6 +16,7 @@
         --bg-transperent: #00000010;
         --border-radius: 16px;
         --bg-card-img: #EDEDED;
+        --text-warning: #ff3b30;
 
     }
 
@@ -110,7 +111,7 @@
     .product-card {
         background: var(--card-bg);
         border-radius: var(--border-radius);
-        padding: 10px;
+        padding: 0.5rem;
         display: flex;
         flex-direction: column;
         text-align: left;
@@ -144,7 +145,12 @@
     .product-details {
         font-size: 0.75rem;
         color: var(--text-secondary);
+    }
+    .product-stock-warning {
+        font-size: 0.75rem;
+        color: var(--text-warning); /* Красный цвет */
         margin-bottom: 1rem;
+        font-weight: 600;
     }
 
     .product-price {
@@ -780,12 +786,13 @@
 }
 
 .top-tooltip.error {
-    background-color: #ff3b30; /* Красный для ошибок */
+    background-color: var(--text-warning); /* Красный для ошибок */
 }
 
 .top-tooltip.success {
     background-color: #4cd964; /* Зеленый для успеха */
 }
+
 
 
 
