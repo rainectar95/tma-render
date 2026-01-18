@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 4. ЗАГРУЗКА ДАННЫХ (С ЗАДЕРЖКОЙ ДЛЯ ЛОАДЕРА)
     // Ждем минимум 1 секунду, чтобы лоадер не моргал
-    const minLoaderTime = new Promise(resolve => setTimeout(resolve, 1000));
+    const minLoaderTime = new Promise(resolve => setTimeout(resolve, 2500));
     // Запускаем параллельно загрузку товаров и таймер
     await Promise.all([loadProducts(), minLoaderTime]);
     
@@ -589,3 +589,4 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
