@@ -433,8 +433,10 @@ function renderProducts() {
             <div class="img-frame"><img src="${imgUrl}" class="product-img" loading="lazy" alt="${p.name}"></div>            
             <div class="product-price">${p.price} ₽</div>
             <div class="product-name">${p.name}</div>
-            <div class="product-details">${details}</div>
-            ${lowStockLabel} 
+            <div class="product-details-block">
+                <div class="product-details">${details}</div>
+                ${lowStockLabel} 
+            </div>
             ${buttonHtml}`;
         container.appendChild(card);
     });
@@ -614,5 +616,6 @@ window.showCatalog = showCatalog;
 window.showCart = showCart;
 window.toggleDeliveryFields = toggleDeliveryFields;
 window.resetApp = resetApp;
+
 
 
